@@ -29,7 +29,14 @@ final class LiveTVModel {
     }
 
     func loadCategories() async {
-        guard categories.isEmpty, categoryState != .loading else { return }
+        if !categories.isEmpty {
+            // Back after a cancelled first load: fetch the selected category again.
+            if streamState == .idle, let id = selectedCategoryID ?? categories.first?.id {
+                await select(id)
+            }
+            return
+        }
+        guard categoryState != .loading else { return }
         categoryState = .loading
         do {
             categories = try await client.liveCategories()
@@ -38,7 +45,8 @@ final class LiveTVModel {
                 await select(first.id)
             }
         } catch {
-            categoryState = .failed(error.localizedDescription)
+            // Leaving the section cancels the request; retry next time instead of showing an error.
+            categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
         }
     }
 
@@ -73,7 +81,7 @@ final class LiveTVModel {
             streamState = result.isEmpty ? .empty : .loaded
         } catch {
             guard selectedCategoryID == categoryID else { return }
-            streamState = .failed(error.localizedDescription)
+            streamState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
         }
     }
 

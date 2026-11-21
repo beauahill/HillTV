@@ -33,16 +33,31 @@ final class HomeModel {
         guard state == .idle else { return }
         state = .loading
 
-        async let movieCategories = try? client.vodCategories()
-        async let seriesCategories = try? client.seriesCategories()
-        let movieCats = Array((await movieCategories ?? []).prefix(Self.railCount))
-        let seriesCats = Array((await seriesCategories ?? []).prefix(Self.railCount))
+        // A failed or cancelled load must end somewhere retryable, never stuck.
+        var firstError: Error?
+        var movieCats: [XtreamCategory] = []
+        var seriesCats: [XtreamCategory] = []
+        do { movieCats = try await client.vodCategories() } catch { firstError = error }
+        do { seriesCats = try await client.seriesCategories() } catch { firstError = firstError ?? error }
+        if Task.isCancelled {
+            state = .idle
+            return
+        }
+        if movieCats.isEmpty, seriesCats.isEmpty, let firstError {
+            state = .failed(firstError.localizedDescription)
+            return
+        }
 
-        async let movies = loadMovieRails(movieCats)
-        async let series = loadSeriesRails(seriesCats)
-        movieRails = await movies
-        seriesRails = await series
-
+        async let movies = loadMovieRails(Array(movieCats.prefix(Self.railCount)))
+        async let series = loadSeriesRails(Array(seriesCats.prefix(Self.railCount)))
+        let loadedMovies = await movies
+        let loadedSeries = await series
+        if Task.isCancelled {
+            state = .idle
+            return
+        }
+        movieRails = loadedMovies
+        seriesRails = loadedSeries
         state = (movieRails.isEmpty && seriesRails.isEmpty) ? .empty : .loaded
 
         featured = movieRails.lazy.flatMap(\.items).first { $0.posterURL != nil }

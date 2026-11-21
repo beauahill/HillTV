@@ -21,14 +21,22 @@ final class MoviesModel {
     }
 
     func loadCategories() async {
-        guard categories.isEmpty, categoryState != .loading else { return }
+        if !categories.isEmpty {
+            // Back after a cancelled first load: fetch the selected category again.
+            if movieState == .idle, let id = selectedCategoryID ?? categories.first?.id {
+                await select(id)
+            }
+            return
+        }
+        guard categoryState != .loading else { return }
         categoryState = .loading
         do {
             categories = try await client.vodCategories()
             categoryState = categories.isEmpty ? .empty : .loaded
             if let first = categories.first { await select(first.id) }
         } catch {
-            categoryState = .failed(error.localizedDescription)
+            // Leaving the section cancels the request; retry next time instead of showing an error.
+            categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
         }
     }
 
@@ -59,7 +67,7 @@ final class MoviesModel {
             movieState = result.isEmpty ? .empty : .loaded
         } catch {
             guard selectedCategoryID == categoryID else { return }
-            movieState = .failed(error.localizedDescription)
+            movieState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
         }
     }
 

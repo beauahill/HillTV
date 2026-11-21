@@ -21,14 +21,22 @@ final class SeriesModel {
     }
 
     func loadCategories() async {
-        guard categories.isEmpty, categoryState != .loading else { return }
+        if !categories.isEmpty {
+            // Back after a cancelled first load: fetch the selected category again.
+            if itemState == .idle, let id = selectedCategoryID ?? categories.first?.id {
+                await select(id)
+            }
+            return
+        }
+        guard categoryState != .loading else { return }
         categoryState = .loading
         do {
             categories = try await client.seriesCategories()
             categoryState = categories.isEmpty ? .empty : .loaded
             if let first = categories.first { await select(first.id) }
         } catch {
-            categoryState = .failed(error.localizedDescription)
+            // Leaving the section cancels the request; retry next time instead of showing an error.
+            categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
         }
     }
 
@@ -59,7 +67,7 @@ final class SeriesModel {
             itemState = result.isEmpty ? .empty : .loaded
         } catch {
             guard selectedCategoryID == categoryID else { return }
-            itemState = .failed(error.localizedDescription)
+            itemState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
         }
     }
 

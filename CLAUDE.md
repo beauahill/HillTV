@@ -22,13 +22,17 @@ Anything that imports SwiftUI, UIKit, AVKit or Security can only be compiled in 
 
 ## Status when handed off
 
-Done and tested on Linux: `HillTVCore` (Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, M3U parser). 15 XCTest cases pass.
+`HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser. 17 XCTest cases, passing in CI's Linux job.
 
-Written but never compiled: everything under `App/`. It was checked for syntax and reviewed against tvOS 17 APIs. The first CI run is the first real type check. Likely trouble spots, in order:
+`App/` (AVPlayer build) compiles green in CI as of Nov 2026, including the IPTVnator-style restyle: sidebar shell, Home with hero and rails, movie and series detail pages. It has not been run on a device yet. Check on the TV first:
 
-1. `KSPlayerEngineView.swift` (only compiled with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
-2. `@Observable` classes with `didSet` (`AppModel.engine`).
-3. `HillTVApp.init()` calling the `@MainActor` `KSPlayerSupport.configure()`.
+1. Menu/Back from the root of a section. With the system tab bar gone it probably exits the app instead of returning focus to the sidebar. Don't patch it blind: an exit handler can break popping detail pages.
+2. Focus moving between the sidebar and content (both are `.focusSection()`), and long-press Add to Favorites on the custom channel rows.
+3. Focus rings and scale clipping at the edges of Home rails and poster grids; text contrast on focused (mint) rows.
+
+Still never compiled: `KSPlayerEngineView.swift` (only built with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
+
+Some cloud sessions have no Swift toolchain, so `swift test` and the `test-runner` subagent can't run there. Push and let CI's `core-tests` job run them; on a branch, start it with a manual `workflow_dispatch` (only `main` pushes trigger automatically, and releases only publish from `main` and tags).
 
 XcodeGen output for both specs was verified (XcodeGen 2.48 on Linux): scheme, packages, Info.plist and build settings all generate correctly.
 
@@ -41,7 +45,8 @@ App/Model/AccountStore.swift Keychain with UserDefaults fallback
 App/Model/FavoritesStore.swift
 App/Model/LoadState.swift    LoadState enum + LoadStateView placeholder
 App/Player/                  PlayableItem, PlayerView, AVPlayer + KSPlayer engines
-App/Views/                   Login, LiveTV (+ NowNextPanel), Movies, Series, Favorites, Settings, shared components
+App/Views/Theme.swift        Color/type tokens, button styles, Eyebrow, Pill, ProgressBar, FlowLayout, Backdrop
+App/Views/                   Home, Login, LiveTV (+ NowNextPanel), Movies + MovieDetail, Series (+ detail), Favorites, Settings, shared components
 Packages/HillTVCore/         No UI imports. Builds on tvOS, macOS, Linux.
 ```
 
@@ -79,7 +84,7 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 7. Catch-up / timeshift for channels with `tv_archive`. Xtream URL shape: `/timeshift/{user}/{pass}/{durationMinutes}/{Y-m-d:H-M}/{streamID}.ts`, where the date is in the panel's timezone (`server_info.timezone`), not the viewer's.
 8. M3U playlists as a second source type, using the existing `M3UParser`.
 9. Stalker/Ministra portals.
-10. VOD info pages (`get_vod_info`), resume positions, watch history.
+10. Resume positions, watch history, "continue watching" rail on Home. (VOD info pages are done.)
 11. Multiple accounts.
 
 Related known gap: `EPGEntry.parsePanelDate` assumes UTC when a panel sends no timestamps. It should use the panel timezone from `server_info`.
