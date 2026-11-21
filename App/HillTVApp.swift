@@ -47,7 +47,9 @@ struct RootView: View {
 
 enum AppSection: String, CaseIterable, Identifiable {
     case home
+    case search
     case live
+    case guide
     case favorites
     case movies
     case series
@@ -58,7 +60,9 @@ enum AppSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "Home"
+        case .search: return "Search"
         case .live: return "Live TV"
+        case .guide: return "Guide"
         case .favorites: return "Favorites"
         case .movies: return "Movies"
         case .series: return "Series"
@@ -69,7 +73,9 @@ enum AppSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .home: return "house"
+        case .search: return "magnifyingglass"
         case .live: return "tv"
+        case .guide: return "calendar"
         case .favorites: return "heart"
         case .movies: return "film"
         case .series: return "square.grid.2x2"
@@ -85,7 +91,9 @@ struct MainShell: View {
 
     @State private var section: AppSection = .home
     @State private var home: HomeModel
+    @State private var search: SearchModel
     @State private var live: LiveTVModel
+    @State private var guide: GuideModel
     @State private var movies: MoviesModel
     @State private var series: SeriesModel
     @FocusState private var sidebarFocus: AppSection?
@@ -93,7 +101,9 @@ struct MainShell: View {
     init(client: XtreamClient) {
         self.client = client
         _home = State(initialValue: HomeModel(client: client))
+        _search = State(initialValue: SearchModel(client: client))
         _live = State(initialValue: LiveTVModel(client: client))
+        _guide = State(initialValue: GuideModel(client: client))
         _movies = State(initialValue: MoviesModel(client: client))
         _series = State(initialValue: SeriesModel(client: client))
     }
@@ -129,9 +139,10 @@ struct MainShell: View {
     private var contentAtRoot: Bool {
         switch section {
         case .home: return home.path.isEmpty
+        case .search: return search.path.isEmpty
         case .movies: return movies.path.isEmpty
         case .series: return series.path.isEmpty
-        case .live, .favorites, .settings: return true
+        case .live, .guide, .favorites, .settings: return true
         }
     }
 
@@ -140,8 +151,12 @@ struct MainShell: View {
         switch section {
         case .home:
             HomeView(model: home)
+        case .search:
+            SearchView(model: search)
         case .live:
             LiveTVView(model: live)
+        case .guide:
+            GuideView(model: guide)
         case .favorites:
             FavoritesView(client: client)
         case .movies:
