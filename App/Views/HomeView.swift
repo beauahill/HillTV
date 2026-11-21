@@ -2,8 +2,9 @@ import HillTVCore
 import Observation
 import SwiftUI
 
-/// Home: a featured movie up top, then rails for favorite channels and the
-/// first few movie and series categories. Uses per-category requests rather
+/// Home: search and the time, a featured movie, what's live on favorite
+/// channels, continue watching, then rails for the first few movie and
+/// series categories. Uses per-category requests rather
 /// than the full catalog, which can be tens of megabytes on big panels.
 @MainActor
 @Observable
@@ -112,6 +113,9 @@ final class HomeModel {
 
 struct HomeView: View {
     @Bindable var model: HomeModel
+    let epg: EPGStore
+    /// Jumps to the Search section.
+    var onSearch: () -> Void = {}
 
     @Environment(AppModel.self) private var app
     @State private var nowPlaying: PlayableItem?
@@ -119,8 +123,25 @@ struct HomeView: View {
     var body: some View {
         NavigationStack(path: $model.path) {
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 56) {
+                VStack(alignment: .leading, spacing: 44) {
+                    topBar
+
                     hero
+
+                    if !app.favorites.channels.isEmpty {
+                        Rail(title: "Live now on your favorites") {
+                            ForEach(app.favorites.channels) { stream in
+                                Button {
+                                    play(stream)
+                                } label: {
+                                    LiveNowCard(stream: stream, epg: epg)
+                                }
+                                .buttonStyle(TVCardButtonStyle())
+                                .onAppear { epg.rowAppeared(stream.id) }
+                                .onDisappear { epg.rowDisappeared(stream.id) }
+                            }
+                        }
+                    }
 
                     if !app.watchHistory.entries.isEmpty {
                         Rail(title: "Continue watching") {
@@ -142,19 +163,6 @@ struct HomeView: View {
                                         app.watchHistory.remove(id: entry.id)
                                     }
                                 }
-                            }
-                        }
-                    }
-
-                    if !app.favorites.channels.isEmpty {
-                        Rail(title: "Favorite channels") {
-                            ForEach(app.favorites.channels) { stream in
-                                Button {
-                                    play(stream)
-                                } label: {
-                                    ChannelTile(stream: stream)
-                                }
-                                .buttonStyle(TVCardButtonStyle())
                             }
                         }
                     }
@@ -201,53 +209,93 @@ struct HomeView: View {
         .playerCover(item: $nowPlaying)
     }
 
+    private var topBar: some View {
+        HStack(spacing: 24) {
+            Button(action: onSearch) {
+                Label("Search channels, movies and series", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(TVChipButtonStyle())
+
+            Spacer(minLength: 24)
+
+            TimelineView(.everyMinute) { context in
+                Text(context.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute()))
+                    .font(.tvSmall)
+                    .foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 12)
+    }
+
     @ViewBuilder
     private var hero: some View {
         if let movie = model.featured {
             let info = model.featuredInfo
-            VStack(alignment: .leading, spacing: 20) {
-                Eyebrow(text: "Featured")
+            let saved = app.watchHistory.entry(id: "movie-\(movie.id)")
+            VStack(alignment: .leading, spacing: 14) {
+                Eyebrow(text: "Featured movie")
                 Text(info?.name ?? movie.name)
                     .font(.tvDisplay)
                     .foregroundStyle(Theme.text)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                let meta = [info?.year, info?.genre].compactMap { $0 }.joined(separator: " · ")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                let meta = heroMeta(movie: movie, info: info)
                 if !meta.isEmpty {
                     Text(meta)
                         .font(.tvMeta)
                         .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
                 }
-                if let plot = info?.plot {
-                    Text(plot)
-                        .font(.tvMeta)
-                        .foregroundStyle(Theme.text.opacity(0.9))
-                        .lineSpacing(6)
-                        .lineLimit(3)
-                        .frame(maxWidth: 820, alignment: .leading)
+                HStack(spacing: 20) {
+                    Button {
+                        play(movie, info: info, from: saved?.position)
+                    } label: {
+                        Label(saved == nil ? "Play" : "Resume", systemImage: "play.fill")
+                    }
+                    .buttonStyle(TVActionButtonStyle(prominent: true))
+
+                    NavigationLink(value: movie) {
+                        Text("Details")
+                    }
+                    .buttonStyle(TVActionButtonStyle())
                 }
-                NavigationLink(value: movie) {
-                    Label("Explore title", systemImage: "arrow.right")
-                        .labelStyle(TrailingIconLabelStyle())
-                }
-                .buttonStyle(TVActionButtonStyle(prominent: true))
-                .padding(.top, 12)
+                .padding(.top, 10)
             }
-            .padding(.horizontal, 40)
-            .padding(.top, 40)
-            .padding(.bottom, 24)
-            .frame(maxWidth: .infinity, minHeight: 560, alignment: .bottomLeading)
+            .padding(36)
+            .frame(maxWidth: .infinity, minHeight: 340, alignment: .bottomLeading)
             .background {
                 HeroArt(url: info?.backdropURL ?? movie.posterURL)
             }
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .padding(.horizontal, 40)
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 Eyebrow(text: "Home")
                 Wordmark(size: 76)
             }
             .padding(.horizontal, 40)
-            .padding(.top, 24)
         }
+    }
+
+    private func heroMeta(movie: VODStream, info: VODInfo?) -> String {
+        var parts: [String] = []
+        if let year = info?.year { parts.append(year) }
+        if let genre = info?.genre { parts.append(genre) }
+        if let seconds = info?.durationSeconds, seconds > 0 { parts.append("\(seconds / 60) min") }
+        if let rating = info?.rating ?? movie.rating, rating > 0 { parts.append(String(format: "★ %.1f", rating)) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func play(_ movie: VODStream, info: VODInfo?, from position: Double?) {
+        nowPlaying = PlayableItem.movie(
+            movie,
+            title: info?.name ?? movie.name,
+            subtitle: info?.year,
+            artworkURL: info?.posterURL ?? movie.posterURL,
+            client: model.client,
+            startAt: position
+        )
     }
 
     private func play(_ stream: LiveStream) {
@@ -260,45 +308,31 @@ struct HomeView: View {
     }
 }
 
-/// Unblurred artwork faded into the background on the left and bottom.
+/// Unblurred artwork on the right of the hero card, faded into the surface on the left.
 private struct HeroArt: View {
     let url: URL?
 
     var body: some View {
         ZStack {
+            Theme.surface
             AsyncImage(url: url) { phase in
                 if let image = phase.image {
                     image
                         .resizable()
                         .scaledToFill()
-                        .opacity(0.75)
+                        .opacity(0.8)
                 }
             }
             LinearGradient(
                 stops: [
                     .init(color: Theme.background, location: 0),
-                    .init(color: Theme.background.opacity(0.7), location: 0.4),
-                    .init(color: .clear, location: 0.8),
+                    .init(color: Theme.background.opacity(0.75), location: 0.4),
+                    .init(color: .clear, location: 0.85),
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-            LinearGradient(
-                colors: [.clear, Theme.background],
-                startPoint: .center,
-                endPoint: .bottom
-            )
         }
         .clipped()
-        .ignoresSafeArea(edges: .top)
-    }
-}
-
-private struct TrailingIconLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 12) {
-            configuration.title
-            configuration.icon
-        }
     }
 }

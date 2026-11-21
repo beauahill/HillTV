@@ -38,6 +38,38 @@ extension PlayableItem {
     }
 }
 
+extension PlayableItem {
+    /// A movie from the start or from `startAt`, with a history entry so progress is saved.
+    static func movie(
+        _ movie: VODStream,
+        title: String,
+        subtitle: String?,
+        artworkURL: URL?,
+        client: XtreamClient,
+        startAt: Double?
+    ) -> PlayableItem {
+        let template = WatchEntry(
+            kind: .movie,
+            streamID: String(movie.id),
+            containerExtension: movie.containerExtension,
+            title: title,
+            subtitle: subtitle,
+            artworkURL: artworkURL,
+            position: 0,
+            duration: nil
+        )
+        return PlayableItem(
+            id: "movie-\(movie.id)",
+            title: title,
+            subtitle: subtitle,
+            url: client.movieURL(movie),
+            isLive: false,
+            history: template,
+            startAt: startAt
+        )
+    }
+}
+
 enum PlayerEngineKind: String, CaseIterable, Identifiable {
     /// Apple's player. HLS (.m3u8) and mp4 only, but hardware-perfect and
     /// gets the native tvOS transport bar and info panel for free.

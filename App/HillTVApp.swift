@@ -156,7 +156,7 @@ struct MainShell: View {
     private var content: some View {
         switch section {
         case .home:
-            HomeView(model: home)
+            HomeView(model: home, epg: epg) { section = .search }
         case .search:
             SearchView(model: search)
         case .live:

@@ -120,23 +120,12 @@ struct MovieDetailView: View {
     }
 
     private func play(from position: Double?) {
-        let template = WatchEntry(
-            kind: .movie,
-            streamID: String(movie.id),
-            containerExtension: movie.containerExtension,
+        nowPlaying = PlayableItem.movie(
+            movie,
             title: title,
             subtitle: info?.year,
             artworkURL: poster,
-            position: 0,
-            duration: nil
-        )
-        nowPlaying = PlayableItem(
-            id: "movie-\(movie.id)",
-            title: title,
-            subtitle: info?.year,
-            url: client.movieURL(movie),
-            isLive: false,
-            history: template,
+            client: client,
             startAt: position
         )
     }

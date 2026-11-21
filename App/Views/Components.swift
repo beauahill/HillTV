@@ -169,6 +169,58 @@ struct ChannelTile: View {
     }
 }
 
+/// A favorite channel on Home: logo, name, what's on now and how far along it is.
+struct LiveNowCard: View {
+    let stream: LiveStream
+    let epg: EPGStore
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        let now = epg.now
+        let schedule = epg.schedule(for: stream.id)
+        let current = schedule?.current(at: now)
+
+        HStack(spacing: 20) {
+            ChannelLogo(url: stream.iconURL, size: CGSize(width: 110, height: 74))
+            VStack(alignment: .leading, spacing: 8) {
+                Text(stream.name)
+                    .font(.tvMeta.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    if current != nil {
+                        Circle()
+                            .fill(Theme.live)
+                            .frame(width: 10, height: 10)
+                    }
+                    // A blank line holds the height until the listing arrives.
+                    Text(current?.title ?? (schedule == nil ? " " : "No guide data"))
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                }
+                ProgressBar(value: current?.progress(at: now) ?? 0)
+                    .opacity(current == nil ? 0 : 1)
+            }
+        }
+        .padding(20)
+        .frame(width: 460, height: 140, alignment: .leading)
+        .background(
+            isFocused ? Theme.controlRaised : Theme.surface,
+            in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+        )
+        .overlay {
+            if isFocused {
+                RoundedRectangle(cornerRadius: Theme.radius + 7, style: .continuous)
+                    .stroke(Theme.accent, lineWidth: Theme.focusRing)
+                    .padding(-9)
+            }
+        }
+        .scaleEffect(isFocused ? 1.04 : 1)
+        .animation(Theme.focusAnimation, value: isFocused)
+    }
+}
+
 /// Titled horizontal row of tiles, used on Home and in Search.
 struct Rail<Content: View>: View {
     let title: String
