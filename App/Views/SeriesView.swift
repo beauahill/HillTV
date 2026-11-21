@@ -217,6 +217,8 @@ struct SeriesDetailView: View {
                     .padding(.vertical, 16)
                 }
                 .scrollClipDisabled()
+                // Room for the focus ring, but not enough to slide chips over the overview column.
+                .mask { Rectangle().padding(-16) }
             }
 
             ScrollView(.vertical) {
