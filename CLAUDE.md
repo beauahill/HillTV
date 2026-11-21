@@ -47,7 +47,7 @@ Packages/HillTVCore/         No UI imports. Builds on tvOS, macOS, Linux.
 
 Patterns to keep:
 
-- Each browse section (Live TV, Movies, Series) has an `@MainActor @Observable` model held as `@State` in `MainShell` and passed into the view, so switching sections in the sidebar keeps categories and caches. Models cache per category and drop late responses if the user moved on.
+- Each browse section (Home, Live TV, Movies, Series) has an `@MainActor @Observable` model held as `@State` in `MainShell` and passed into the view, so switching sections in the sidebar keeps categories and caches. Models cache per category and drop late responses if the user moved on.
 - Styling goes through `App/Views/Theme.swift`: color and type tokens, `TVRowButtonStyle` (rows, sidebar), `TVActionButtonStyle` (actions, chips), `TVCardButtonStyle` with `PosterCard` (posters). Mint is for focus and progress only; selection is a mint bar. Use `ScrollView` + `LazyVStack` with these styles instead of `List`, whose focus platter fights the custom rows. The look follows IPTVnator's TV edition tokens (`apps/tv/src/tokens.css`), without its name or logo.
 - Category columns select on focus with a 350 ms debounce, so up/down on the remote browses without clicking. EPG for the focused channel is fetched after 400 ms of focus.
 - `AppModel` goes in the environment. `.playerCover(item:)` presents the player and passes engine and user agent explicitly rather than relying on environment propagation into the cover.

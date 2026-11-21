@@ -72,49 +72,44 @@ final class MoviesModel {
 
 struct MoviesView: View {
     let model: MoviesModel
-    @State private var nowPlaying: PlayableItem?
     @FocusState private var focusedCategory: String?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 24) {
-            CategoryColumn(
-                title: "Movies",
-                categories: model.categories,
-                selectedID: model.selectedCategoryID,
-                focus: $focusedCategory
-            ) { category in
-                Task { await model.select(category.id) }
-            }
-            .frame(width: 360)
-            .overlay { LoadStateView(state: model.categoryState, emptyText: "No movie categories") }
-
-            PosterGrid(items: model.movies) { movie in
-                Button {
-                    nowPlaying = PlayableItem(
-                        id: "movie-\(movie.id)",
-                        title: movie.name,
-                        subtitle: movie.rating.map { String(format: "Rating %.1f", $0) },
-                        url: model.client.movieURL(movie),
-                        isLive: false
-                    )
-                } label: {
-                    PosterCard(
-                        title: movie.name,
-                        subtitle: movie.rating.map { String(format: "★ %.1f", $0) },
-                        imageURL: movie.posterURL
-                    )
+        NavigationStack {
+            HStack(alignment: .top, spacing: 24) {
+                CategoryColumn(
+                    title: "Movies",
+                    categories: model.categories,
+                    selectedID: model.selectedCategoryID,
+                    focus: $focusedCategory
+                ) { category in
+                    Task { await model.select(category.id) }
                 }
-                .buttonStyle(TVCardButtonStyle())
+                .frame(width: 360)
+                .overlay { LoadStateView(state: model.categoryState, emptyText: "No movie categories") }
+
+                PosterGrid(items: model.movies) { movie in
+                    NavigationLink(value: movie) {
+                        PosterCard(
+                            title: movie.name,
+                            subtitle: movie.rating.map { String(format: "★ %.1f", $0) },
+                            imageURL: movie.posterURL
+                        )
+                    }
+                    .buttonStyle(TVCardButtonStyle())
+                }
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    LoadStateView(state: model.movieState, emptyText: "No movies in this category") { model.retry() }
+                }
             }
-            .frame(maxWidth: .infinity)
-            .overlay {
-                LoadStateView(state: model.movieState, emptyText: "No movies in this category") { model.retry() }
+            .navigationDestination(for: VODStream.self) { movie in
+                MovieDetailView(client: model.client, movie: movie)
             }
         }
         .task { await model.loadCategories() }
         .onChange(of: focusedCategory) { _, newValue in
             if let newValue { model.scheduleSelect(newValue) }
         }
-        .playerCover(item: $nowPlaying)
     }
 }

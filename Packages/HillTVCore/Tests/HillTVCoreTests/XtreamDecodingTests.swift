@@ -67,6 +67,39 @@ final class XtreamDecodingTests: XCTestCase {
         XCTAssertEqual(movie.rating ?? 0, 7.1, accuracy: 0.001)
     }
 
+    func testVODInfoFullPayload() throws {
+        let json = """
+        {"info":{"name":"Tremors","movie_image":"http://img.example.com/p.jpg","backdrop_path":["http://img.example.com/b.jpg"],
+                 "description":"Worms.","genre":"Horror / Comedy","director":"Ron Underwood","actors":"Kevin Bacon",
+                 "release_date":"1990-01-19","duration":"01:36:00","rating":"7.1"},
+         "movie_data":{"stream_id":"5001","name":"Tremors (1990)","container_extension":"MKV"}}
+        """
+        let info = try decoder.decode(VODInfo.self, from: Data(json.utf8))
+        XCTAssertEqual(info.name, "Tremors")
+        XCTAssertEqual(info.plot, "Worms.")
+        XCTAssertEqual(info.cast, "Kevin Bacon")
+        XCTAssertEqual(info.year, "1990")
+        XCTAssertEqual(info.durationSeconds, 5760)
+        XCTAssertEqual(info.backdropURL?.host, "img.example.com")
+        XCTAssertEqual(info.containerExtension, "mkv")
+        XCTAssertEqual(info.rating ?? 0, 7.1, accuracy: 0.001)
+    }
+
+    func testVODInfoEmptyInfoArrayAndOddTypes() throws {
+        let empty = #"{"info":[],"movie_data":{"stream_id":5002,"name":"Bare","container_extension":"mp4"}}"#
+        let bare = try decoder.decode(VODInfo.self, from: Data(empty.utf8))
+        XCTAssertEqual(bare.name, "Bare")
+        XCTAssertNil(bare.plot)
+
+        let odd = #"{"info":{"plot":"","backdrop_path":"","duration_secs":"6840","rating":0,"releasedate":"n/a"},"movie_data":[]}"#
+        let info = try decoder.decode(VODInfo.self, from: Data(odd.utf8))
+        XCTAssertNil(info.plot)
+        XCTAssertNil(info.backdropURL)
+        XCTAssertEqual(info.durationSeconds, 6840)
+        XCTAssertNil(info.rating)
+        XCTAssertNil(info.year)
+    }
+
     func testSeriesInfoDictionaryEpisodes() throws {
         let json = """
         {"seasons":[],"info":{"name":"Yellowstone","plot":"Ranch.","cover":"http://img/c.jpg"},

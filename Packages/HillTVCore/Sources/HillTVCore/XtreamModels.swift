@@ -444,3 +444,91 @@ struct ShortEPGResponse: Decodable {
         listings = (try? c.decode(LossyArray<EPGEntry>.self, forKey: .listings).elements) ?? []
     }
 }
+
+/// `get_vod_info`: details for one movie. Panels send `info` as an object,
+/// or as `[]` when they have nothing, and spell several fields two ways.
+public struct VODInfo: Sendable, Decodable {
+    public let name: String?
+    public let plot: String?
+    public let posterURL: URL?
+    public let backdropURL: URL?
+    public let genre: String?
+    public let director: String?
+    public let cast: String?
+    public let releaseDate: String?
+    public let durationSeconds: Int?
+    public let rating: Double?
+    public let containerExtension: String?
+
+    /// First four digits of the release date, when it starts with a year.
+    public var year: String? {
+        guard let releaseDate, releaseDate.count >= 4 else { return nil }
+        let prefix = String(releaseDate.prefix(4))
+        return Int(prefix) == nil ? nil : prefix
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case info
+        case movieData = "movie_data"
+    }
+
+    enum InfoKeys: String, CodingKey {
+        case name, plot, description, genre, director, cast, actors, rating
+        case movieImage = "movie_image"
+        case coverBig = "cover_big"
+        case backdropPath = "backdrop_path"
+        case releaseDate = "releasedate"
+        case releaseDateAlt = "release_date"
+        case durationSecs = "duration_secs"
+        case duration
+    }
+
+    enum MovieDataKeys: String, CodingKey {
+        case name
+        case containerExtension = "container_extension"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let data = try? c.nestedContainer(keyedBy: MovieDataKeys.self, forKey: .movieData)
+        containerExtension = data?.lenientString(.containerExtension)?.lowercased()
+
+        guard let info = try? c.nestedContainer(keyedBy: InfoKeys.self, forKey: .info) else {
+            name = data?.lenientString(.name)
+            plot = nil
+            posterURL = nil
+            backdropURL = nil
+            genre = nil
+            director = nil
+            cast = nil
+            releaseDate = nil
+            durationSeconds = nil
+            rating = nil
+            return
+        }
+        name = info.lenientString(.name) ?? data?.lenientString(.name)
+        plot = info.lenientString(.plot) ?? info.lenientString(.description)
+        posterURL = info.lenientURL(.movieImage) ?? info.lenientURL(.coverBig)
+        backdropURL = info.lenientStringArray(.backdropPath).lazy.compactMap { URL(string: $0) }.first
+        genre = info.lenientString(.genre)
+        director = info.lenientString(.director)
+        cast = info.lenientString(.cast) ?? info.lenientString(.actors)
+        releaseDate = info.lenientString(.releaseDate) ?? info.lenientString(.releaseDateAlt)
+        durationSeconds = info.lenientInt(.durationSecs) ?? Self.parseDuration(info.lenientString(.duration))
+        let rating = info.lenientDouble(.rating)
+        self.rating = (rating ?? 0) > 0 ? rating : nil
+    }
+
+    /// "01:54:00" or "114" (minutes) to seconds.
+    static func parseDuration(_ string: String?) -> Int? {
+        guard let string else { return nil }
+        let parts = string.split(separator: ":").map { Int($0) }
+        guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
+        let values = parts.compactMap { $0 }
+        switch values.count {
+        case 1: return values[0] * 60
+        case 2: return values[0] * 3600 + values[1] * 60
+        default: return values[0] * 3600 + values[1] * 60 + values[2]
+        }
+    }
+}

@@ -77,6 +77,10 @@ public final class XtreamClient: @unchecked Sendable {
         try await get(LossyArray<VODStream>.self, action: "get_vod_streams", query: categoryQuery(categoryID)).elements
     }
 
+    public func vodInfo(streamID: Int) async throws -> VODInfo {
+        try await get(VODInfo.self, action: "get_vod_info", query: [URLQueryItem(name: "vod_id", value: String(streamID))])
+    }
+
     public func seriesCategories() async throws -> [XtreamCategory] {
         try await get(LossyArray<XtreamCategory>.self, action: "get_series_categories").elements
     }

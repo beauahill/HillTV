@@ -46,6 +46,7 @@ struct RootView: View {
 }
 
 enum AppSection: String, CaseIterable, Identifiable {
+    case home
     case live
     case favorites
     case movies
@@ -56,6 +57,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .home: return "Home"
         case .live: return "Live TV"
         case .favorites: return "Favorites"
         case .movies: return "Movies"
@@ -66,6 +68,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .home: return "house"
         case .live: return "tv"
         case .favorites: return "heart"
         case .movies: return "film"
@@ -80,13 +83,15 @@ enum AppSection: String, CaseIterable, Identifiable {
 struct MainShell: View {
     let client: XtreamClient
 
-    @State private var section: AppSection = .live
+    @State private var section: AppSection = .home
+    @State private var home: HomeModel
     @State private var live: LiveTVModel
     @State private var movies: MoviesModel
     @State private var series: SeriesModel
 
     init(client: XtreamClient) {
         self.client = client
+        _home = State(initialValue: HomeModel(client: client))
         _live = State(initialValue: LiveTVModel(client: client))
         _movies = State(initialValue: MoviesModel(client: client))
         _series = State(initialValue: SeriesModel(client: client))
@@ -108,6 +113,8 @@ struct MainShell: View {
     @ViewBuilder
     private var content: some View {
         switch section {
+        case .home:
+            HomeView(model: home)
         case .live:
             LiveTVView(model: live)
         case .favorites:
