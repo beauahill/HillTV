@@ -22,9 +22,9 @@ Anything that imports SwiftUI, UIKit, AVKit or Security can only be compiled in 
 
 ## Status when handed off
 
-`HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser, `WatchHistory`, `SearchIndex`, `GuideWindow`. 34 XCTest cases, passing in CI's Linux job.
+`HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser, `WatchHistory`, `SearchIndex`, `GuideWindow`, `EPGSchedule`. 44 XCTest cases, passing in CI's Linux job.
 
-`App/` (AVPlayer build) compiles green in CI as of Nov 2026, including the IPTVnator-style restyle: sidebar shell, Home with hero and rails, movie and series detail pages. First device test (Nov 2026): installs and runs. Focus between sidebar and content works, and so does long-press Add to Favorites.
+`App/` (AVPlayer build) compiles green in CI as of Nov 2026. First device test (Nov 2026, with the older fixed sidebar): installs and runs. Focus between sidebar and content worked, and so did long-press Add to Favorites.
 
 - Menu at a section's root used to quit the app. Now `MainShell` sends focus to the sidebar via `.onExitCommand`, only when that section's `NavigationPath` (on its model) is empty, so detail pages still pop normally. Needs a device check.
 - Focus rings were cut off at scroll view edges. Poster grids, Home rails and season chips now use `.scrollClipDisabled()`, and `MainShell` masks the content so overflow can't cover the sidebar. Needs a device check.
@@ -35,6 +35,17 @@ Added after that test, compiled but not yet run on the TV:
 - Search (`.searchable` inside the custom shell). Check the keyboard appears, Menu from the keyboard behaves (the shell's `.onExitCommand` may send focus to the sidebar instead of closing it), and how long the first catalog load takes on a big provider.
 - Guide grid. Check focus moves cell to cell and row to row, the "now" line lines up, and listings fill in as you scroll. Times rely on `parsePanelDate`, which assumes UTC when a panel sends no timestamps, so some panels may show shifted times.
 
+"Control Room" redesign (Nov 2026, option C of three mockups Beau picked from). Compiled green, never run on the TV. Check each of these on device:
+
+- Icon rail. It should widen and show labels while focused, collapse when focus moves into the content, and not shift the content. Right from any rail item should land in the content, and Menu at a section's root should come back to the rail. The rail's buttons keep an icon-sized frame and draw the wide highlight and label outside it, so also check the highlight and labels aren't clipped.
+- Live TV chips. Left and right move along the row, Select changes category, down goes to the channel list, up comes back. "All" opens the full category grid and Menu closes it. After a pick from the grid the chip row should scroll to the selected chip.
+- Live TV rows. "On now" titles and progress should fill in as rows scroll into view, and channels with no guide data should say so instead of spinning. The detail pane on the right should follow focus after a short pause.
+- Live preview (Settings > Live TV preview). Off by default unless the account reports two or more connections. When on: the picture should start about a second after focus rests on a channel, stop when the player opens, when the app leaves the foreground and after three minutes on one channel, and never block the full player from starting. On a one-connection account with the preview forced on, Select waits 0.7 s after stopping the preview before opening the player; check that is enough for the panel to free the connection.
+- Home. The search chip should jump to Search, the hero's Play and Details buttons should both be reachable, and the "Live now on your favorites" cards should show what's on.
+- Colors and type from across the room: blue focus fill on rows, muted text on the dark surfaces, the condensed hero title.
+
+Where the build differs from the mockup: the rail sits inside the tvOS safe area (like the old sidebar did) rather than against the screen edge, Live TV has an "All" category grid the mockup didn't show, chips span the full width instead of sitting above the list, and the preview has the defaults above.
+
 Still never compiled: `KSPlayerEngineView.swift` (only built with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
 
 Some cloud sessions have no Swift toolchain, so `swift test` and the `test-runner` subagent can't run there. Push and let CI's `core-tests` job run them; on a branch, start it with a manual `workflow_dispatch` (only `main` pushes trigger automatically, and releases only publish from `main` and tags).
@@ -44,14 +55,15 @@ XcodeGen output for both specs was verified (XcodeGen 2.48 on Linux): scheme, pa
 ## Layout and architecture
 
 ```
-App/HillTVApp.swift          @main, RootView (login vs shell), MainShell + Sidebar, Wordmark
+App/HillTVApp.swift          @main, RootView (login vs shell), MainShell + Sidebar (the icon rail), Wordmark
 App/Model/AppModel.swift     Session, engine choice, live format choice
 App/Model/AccountStore.swift Keychain with UserDefaults fallback
 App/Model/FavoritesStore.swift
 App/Model/LoadState.swift    LoadState enum + LoadStateView placeholder
-App/Player/                  PlayableItem, PlayerView, AVPlayer + KSPlayer engines
-App/Views/Theme.swift        Color/type tokens, button styles, Eyebrow, Pill, ProgressBar, FlowLayout, Backdrop
-App/Views/                   Home, Search, Login, LiveTV (+ NowNextPanel), Guide, Movies + MovieDetail, Series (+ detail), Favorites, Settings, shared components (Rail, PosterCard, ChannelTile)
+App/Model/EPGStore.swift     Short EPG per channel for Live TV and Home, plus a shared clock
+App/Player/                  PlayableItem, PlayerView, AVPlayer + KSPlayer engines, LivePreviewView
+App/Views/Theme.swift        Color/type tokens, button styles, Eyebrow, Pill, ProgressBar, FocusAwareProgressBar, FlowLayout, Backdrop
+App/Views/                   Home, Search, Login, LiveTV (chips, rows, detail pane, category picker), Guide, Movies + MovieDetail, Series (+ detail), Favorites, Settings, shared components (Rail, PosterCard, ChannelTile, LiveNowCard)
 App/Model/WatchHistoryStore.swift  Continue watching, per account, cleared on sign out
 Packages/HillTVCore/         No UI imports. Builds on tvOS, macOS, Linux.
 ```
@@ -59,9 +71,12 @@ Packages/HillTVCore/         No UI imports. Builds on tvOS, macOS, Linux.
 Patterns to keep:
 
 - Watch history stores IDs and rebuilds stream URLs with `movieURL(streamID:)` / `episodeURL(episodeID:)`. Never persist stream URLs: they contain the password.
-- Each browse section (Home, Search, Live TV, Guide, Movies, Series) has an `@MainActor @Observable` model held as `@State` in `MainShell` and passed into the view, so switching sections in the sidebar keeps categories and caches. Models cache per category and drop late responses if the user moved on.
-- Styling goes through `App/Views/Theme.swift`: color and type tokens, `TVRowButtonStyle` (rows, sidebar), `TVActionButtonStyle` (actions, chips), `TVCardButtonStyle` with `PosterCard` (posters). Mint is for focus and progress only; selection is a mint bar. Use `ScrollView` + `LazyVStack` with these styles instead of `List`, whose focus platter fights the custom rows. The look follows IPTVnator's TV edition tokens (`apps/tv/src/tokens.css`), without its name or logo.
-- Category columns select on focus with a 350 ms debounce, so up/down on the remote browses without clicking. EPG for the focused channel is fetched after 400 ms of focus.
+- Each browse section (Home, Search, Live TV, Guide, Movies, Series) has an `@MainActor @Observable` model held as `@State` in `MainShell` and passed into the view, so switching sections in the rail keeps categories and caches. Models cache per category and drop late responses if the user moved on.
+- Styling goes through `App/Views/Theme.swift`: color and type tokens, `TVRowButtonStyle` (rows), `TVActionButtonStyle` (actions, season chips), `TVChipButtonStyle` (filter chips), `TVCardButtonStyle` with `PosterCard` and `LiveNowCard` (cards). Blue is for focus, selection and progress; red only marks "live". A focused row fills blue with dark text, so anything inside one must flip color too (`tvSecondary()`, `FocusAwareProgressBar`). Use `ScrollView` + `LazyVStack` with these styles instead of `List`, whose focus platter fights the custom rows. To change the palette or type, edit the tokens at the top of `Theme.swift`; nothing else hardcodes colors.
+- The rail (`Sidebar` in `HillTVApp.swift`) never changes its layout. Buttons stay icon-sized and the expanded panel, highlight and labels are drawn outside their frames, over the content. Keep it that way: the focus engine works from frames, and this keeps them identical collapsed or expanded.
+- Guide, Movies and Series use `CategoryColumn`, which selects on focus with a 350 ms debounce, so up/down on the remote browses without clicking. Live TV is different: its category chips select on click, because stepping across a long chip row shouldn't reload the list at every stop. "Favorites" is a pseudo-category (`LiveTVModel.favoritesID`) whose channels come from `FavoritesStore`.
+- `EPGStore` (held by `MainShell`, shared by Live TV and Home) fetches short EPG for rows that stay on screen 300 ms, four requests at a time, and caches results including empty ones. `EPGSchedule.needsFetch` in core decides when to ask again. Views read `epg.now`, which ticks every 30 s, instead of `Date()`, so progress moves without each row running a timer. Guide still has its own fetch queue; fold it into `EPGStore` when Guide moves to XMLTV.
+- Live preview: `LivePreviewView` is always AVPlayer with the HLS URL, whatever the main engine is. `LiveTVView.runPreview` owns its lifetime through `.task(id:)`. The preview must never hold a connection it can't be seen using: keep the stops for player open, scene inactive and idle timeout if this is reworked.
 - `AppModel` goes in the environment. `.playerCover(item:)` presents the player and passes engine and user agent explicitly rather than relying on environment propagation into the cover.
 - Player engine abstraction: `PlayerView` picks AVPlayer or KSPlayer. `KSPlayerEngineView.swift` has a `#if canImport(KSPlayerUI)` stub so nothing else needs conditional compilation.
 - Live URLs: AVPlayer gets `.m3u8`, KSPlayer gets `.ts` unless the panel's `allowed_output_formats` lacks it. See `AppModel.liveFormat`.
@@ -92,7 +107,8 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 8. M3U playlists as a second source type, using the existing `M3UParser`.
 9. Stalker/Ministra portals.
 10. Resume and continue watching for KSPlayer (AVPlayer done). Watch history for live channels ("last channel").
-11. Multiple accounts.
+11. Hand the preview's AVPlayer to the full-screen player on Select (AVPlayer engine), so the picture carries over with no second connection or rebuffer.
+12. Multiple accounts.
 
 Related known gap: `EPGEntry.parsePanelDate` assumes UTC when a panel sends no timestamps. It should use the panel timezone from `server_info`.
 
@@ -113,3 +129,4 @@ IPTVnator (github.com/4gray/iptvnator, MIT, Electron + Angular, TypeScript) alre
 - In shell instructions, use the hyphenated `docker-compose` command, not `docker compose`.
 - UI copy and docs: plain, direct language, no em dashes.
 - Consult the advisor before a plan locks, after hitting the same error twice, and before marking a task done.
+- Show mockup options and get Beau's pick before changing layout, navigation or visual style.
