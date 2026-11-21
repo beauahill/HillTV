@@ -186,6 +186,45 @@ struct TVActionButtonStyle: ButtonStyle {
     }
 }
 
+/// Compact capsule for filters, such as Live TV categories.
+/// Focus: blue fill with dark text. Selected: blue tint with blue text.
+struct TVChipButtonStyle: ButtonStyle {
+    var isSelected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        ChipBody(configuration: configuration, isSelected: isSelected)
+    }
+
+    private struct ChipBody: View {
+        let configuration: ButtonStyleConfiguration
+        let isSelected: Bool
+        @Environment(\.isFocused) private var isFocused
+
+        private var fill: Color {
+            if isFocused { return Theme.accent }
+            return isSelected ? Theme.accent.opacity(0.2) : Theme.control
+        }
+
+        private var foreground: Color {
+            if isFocused { return Theme.onAccent }
+            return isSelected ? Theme.accent : Theme.text
+        }
+
+        var body: some View {
+            configuration.label
+                .font(.tvEyebrow)
+                .foregroundStyle(foreground)
+                .lineLimit(1)
+                .padding(.horizontal, 26)
+                .frame(minHeight: 56)
+                .background(fill, in: Capsule())
+                .scaleEffect(isFocused ? 1.06 : 1)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .animation(Theme.focusAnimation, value: isFocused)
+        }
+    }
+}
+
 /// No chrome of its own. The label draws focus itself (see `PosterCard`),
 /// which keeps the system's default focus platter out of the way.
 struct TVCardButtonStyle: ButtonStyle {
@@ -239,6 +278,26 @@ struct ProgressBar: View {
             }
         }
         .frame(height: 8)
+    }
+}
+
+/// Progress bar for use inside a focusable row or card whose fill turns blue
+/// on focus. It flips to dark there so it stays visible.
+struct FocusAwareProgressBar: View {
+    let value: Double
+    var height: CGFloat = 6
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(isFocused ? Theme.onAccent.opacity(0.2) : Theme.control)
+                Capsule()
+                    .fill(isFocused ? Theme.onAccent : Theme.accent)
+                    .frame(width: geo.size.width * min(max(value, 0), 1))
+            }
+        }
+        .frame(height: height)
     }
 }
 

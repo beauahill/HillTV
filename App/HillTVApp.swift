@@ -96,6 +96,7 @@ struct MainShell: View {
     @State private var guide: GuideModel
     @State private var movies: MoviesModel
     @State private var series: SeriesModel
+    @State private var epg: EPGStore
     @FocusState private var sidebarFocus: AppSection?
 
     init(client: XtreamClient) {
@@ -106,6 +107,7 @@ struct MainShell: View {
         _guide = State(initialValue: GuideModel(client: client))
         _movies = State(initialValue: MoviesModel(client: client))
         _series = State(initialValue: SeriesModel(client: client))
+        _epg = State(initialValue: EPGStore(client: client))
     }
 
     var body: some View {
@@ -131,6 +133,8 @@ struct MainShell: View {
                 // With a detail page pushed, nil leaves Menu to pop the page as usual.
                 .onExitCommand(perform: exitAction)
         }
+        // Keeps "on now" progress moving while the shell is on screen.
+        .task { await epg.runClock() }
     }
 
     private var exitAction: (() -> Void)? {
@@ -156,7 +160,7 @@ struct MainShell: View {
         case .search:
             SearchView(model: search)
         case .live:
-            LiveTVView(model: live)
+            LiveTVView(model: live, epg: epg)
         case .guide:
             GuideView(model: guide)
         case .favorites:

@@ -226,6 +226,14 @@ func clockString(_ seconds: Double) -> String {
         : String(format: "%d:%02d", minutes, secs)
 }
 
+/// "21 min left" or "1 h 5 min left".
+func remainingLabel(minutes: Int) -> String {
+    guard minutes >= 60 else { return "\(minutes) min left" }
+    let hours = minutes / 60
+    let rest = minutes % 60
+    return rest == 0 ? "\(hours) h left" : "\(hours) h \(rest) min left"
+}
+
 extension Date {
     var shortTime: String {
         formatted(date: .omitted, time: .shortened)

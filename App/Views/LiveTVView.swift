@@ -5,6 +5,9 @@ import SwiftUI
 @MainActor
 @Observable
 final class LiveTVModel {
+    /// Stands in for a category ID. The channels come from `FavoritesStore`.
+    static let favoritesID = "hilltv.favorites"
+
     let client: XtreamClient
 
     private(set) var categories: [XtreamCategory] = []
@@ -12,26 +15,26 @@ final class LiveTVModel {
     private(set) var selectedCategoryID: String?
     private(set) var streams: [LiveStream] = []
     private(set) var streamState: LoadState = .idle
-    private(set) var focusedStreamID: Int?
-    private(set) var epg: [Int: [EPGEntry]] = [:]
+    /// The channel the detail pane shows: the last one that held focus.
+    private(set) var detailStreamID: Int?
 
     private var streamCache: [String: [LiveStream]] = [:]
-    private var selectTask: Task<Void, Never>?
-    private var epgTask: Task<Void, Never>?
 
     init(client: XtreamClient) {
         self.client = client
     }
 
-    var focusedStream: LiveStream? {
-        guard let focusedStreamID else { return nil }
-        return streams.first { $0.id == focusedStreamID }
+    var showsFavorites: Bool {
+        selectedCategoryID == Self.favoritesID
     }
 
-    func loadCategories() async {
+    func loadCategories(startWithFavorites: Bool) async {
+        if selectedCategoryID == nil, startWithFavorites {
+            await select(Self.favoritesID)
+        }
         if !categories.isEmpty {
             // Back after a cancelled first load: fetch the selected category again.
-            if streamState == .idle, let id = selectedCategoryID ?? categories.first?.id {
+            if streamState == .idle, !showsFavorites, let id = selectedCategoryID ?? categories.first?.id {
                 await select(id)
             }
             return
@@ -41,7 +44,7 @@ final class LiveTVModel {
         do {
             categories = try await client.liveCategories()
             categoryState = categories.isEmpty ? .empty : .loaded
-            if let first = categories.first {
+            if selectedCategoryID == nil, let first = categories.first {
                 await select(first.id)
             }
         } catch {
@@ -50,19 +53,25 @@ final class LiveTVModel {
         }
     }
 
-    /// Called as focus moves through the category list.
-    func scheduleSelect(_ categoryID: String) {
-        selectTask?.cancel()
-        selectTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
-            await self?.select(categoryID)
-        }
+    func retryCategories(startWithFavorites: Bool) {
+        categoryState = .idle
+        Task { await loadCategories(startWithFavorites: startWithFavorites) }
     }
 
+    /// Categories change on click, not on focus: stepping across a long row
+    /// of chips shouldn't reload the channel list at every stop.
     func select(_ categoryID: String) async {
+        if categoryID == Self.favoritesID {
+            guard !showsFavorites else { return }
+            selectedCategoryID = categoryID
+            detailStreamID = nil
+            streams = []
+            streamState = .loaded
+            return
+        }
         if categoryID == selectedCategoryID, streamState == .loaded || streamState == .loading { return }
         selectedCategoryID = categoryID
+        detailStreamID = nil
 
         if let cached = streamCache[categoryID] {
             streams = cached
@@ -91,176 +100,462 @@ final class LiveTVModel {
         Task { await select(id) }
     }
 
-    /// Fetches now/next for the focused channel after a short pause, so
-    /// scrolling quickly through a list doesn't fire a request per row.
-    func focusChanged(to streamID: Int?) {
-        focusedStreamID = streamID
-        epgTask?.cancel()
-        guard let streamID, needsEPG(streamID) else { return }
-        epgTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled, let self else { return }
-            let entries = (try? await self.client.shortEPG(streamID: streamID)) ?? []
-            self.epg[streamID] = entries
-        }
-    }
-
-    private func needsEPG(_ streamID: Int) -> Bool {
-        guard let entries = epg[streamID] else { return true }
-        // Refetch once everything cached has finished airing.
-        return !entries.contains { $0.end > Date() }
+    func showDetail(for streamID: Int) {
+        detailStreamID = streamID
     }
 }
 
+/// Live TV: category chips across the top, the channel list on the left with
+/// what's on now in every row, and details for the focused channel on the right.
 struct LiveTVView: View {
     @Environment(AppModel.self) private var app
     let model: LiveTVModel
+    let epg: EPGStore
+
     @State private var nowPlaying: PlayableItem?
-    @FocusState private var focusedCategory: String?
+    @State private var showingCategories = false
+    @State private var focusTask: Task<Void, Never>?
     @FocusState private var focusedStream: Int?
 
+    private var streams: [LiveStream] {
+        model.showsFavorites ? app.favorites.channels : model.streams
+    }
+
+    private var listState: LoadState {
+        if model.showsFavorites {
+            return app.favorites.channels.isEmpty ? .empty : .loaded
+        }
+        if model.categories.isEmpty {
+            return model.categoryState
+        }
+        return model.streamState
+    }
+
+    private var emptyText: String {
+        if model.showsFavorites { return "No favorites yet. Hold Select on a channel to add it." }
+        return model.categories.isEmpty ? "No live categories" : "No channels in this category"
+    }
+
+    private var detailStream: LiveStream? {
+        let all = streams
+        if let id = model.detailStreamID, let match = all.first(where: { $0.id == id }) {
+            return match
+        }
+        return all.first
+    }
+
+    private var startWithFavorites: Bool {
+        !app.favorites.channels.isEmpty
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 24) {
-            CategoryColumn(
-                title: "Categories",
-                categories: model.categories,
-                selectedID: model.selectedCategoryID,
-                focus: $focusedCategory
-            ) { category in
-                Task { await model.select(category.id) }
+        VStack(alignment: .leading, spacing: 16) {
+            categoryBar
+                .focusSection()
+
+            HStack(alignment: .top, spacing: 32) {
+                channelList
+                    .frame(width: 760)
+                    .focusSection()
+
+                ChannelDetailPane(stream: detailStream, epg: epg)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(width: 360)
-            .overlay { LoadStateView(state: model.categoryState, emptyText: "No live categories") }
-
-            channelList
-                .frame(maxWidth: .infinity)
-
-            NowNextPanel(stream: model.focusedStream, entries: model.focusedStream.flatMap { model.epg[$0.id] })
-                .frame(width: 460)
         }
-        .task { await model.loadCategories() }
-        .onChange(of: focusedCategory) { _, newValue in
-            if let newValue { model.scheduleSelect(newValue) }
-        }
+        .task { await model.loadCategories(startWithFavorites: startWithFavorites) }
         .onChange(of: focusedStream) { _, newValue in
-            model.focusChanged(to: newValue)
+            focusChanged(to: newValue)
         }
         .playerCover(item: $nowPlaying)
     }
 
-    private var channelList: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Eyebrow(text: "Channels")
-                .padding(.leading, 36)
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(model.streams) { stream in
-                        Button {
-                            play(stream)
-                        } label: {
-                            ChannelRow(stream: stream, isFavorite: app.favorites.contains(stream.id))
-                        }
-                        .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
-                        .focused($focusedStream, equals: stream.id)
-                        .contextMenu {
-                            Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
-                                app.favorites.toggle(stream)
-                            }
-                        }
+    // MARK: Categories
+
+    private var categoryBar: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    Button {
+                        showingCategories = true
+                    } label: {
+                        Label("All", systemImage: "square.grid.2x2")
+                    }
+                    .buttonStyle(TVChipButtonStyle())
+
+                    chip("Favorites", id: LiveTVModel.favoritesID, systemImage: "heart.fill")
+
+                    ForEach(model.categories) { category in
+                        chip(category.name, id: category.id)
                     }
                 }
-                .padding(12)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+            }
+            // Focused chips scale past the scroll view's edge; don't cut them off.
+            .scrollClipDisabled()
+            .frame(height: 80)
+            .onChange(of: model.selectedCategoryID) { _, newValue in
+                // A pick from the full list may be far along the row.
+                guard let newValue else { return }
+                withAnimation { proxy.scrollTo(newValue, anchor: .center) }
             }
         }
-        .overlay {
-            LoadStateView(state: model.streamState, emptyText: "No channels in this category") {
-                model.retryStreams()
+        .fullScreenCover(isPresented: $showingCategories) {
+            CategoryPicker(categories: model.categories, selectedID: model.selectedCategoryID) { id in
+                Task { await model.select(id) }
             }
         }
     }
 
+    private func chip(_ title: String, id: String, systemImage: String? = nil) -> some View {
+        Button {
+            Task { await model.select(id) }
+        } label: {
+            if let systemImage {
+                Label(title, systemImage: systemImage)
+            } else {
+                Text(title)
+            }
+        }
+        .buttonStyle(TVChipButtonStyle(isSelected: model.selectedCategoryID == id))
+        .id(id)
+    }
+
+    // MARK: Channels
+
+    private var channelList: some View {
+        ScrollView(.vertical) {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                ForEach(streams) { stream in
+                    Button {
+                        play(stream)
+                    } label: {
+                        LiveChannelRow(
+                            stream: stream,
+                            epg: epg,
+                            isFavorite: !model.showsFavorites && app.favorites.contains(stream.id)
+                        )
+                    }
+                    .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
+                    .focused($focusedStream, equals: stream.id)
+                    .contextMenu {
+                        Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
+                            app.favorites.toggle(stream)
+                        }
+                    }
+                    .onAppear { epg.rowAppeared(stream.id) }
+                    .onDisappear { epg.rowDisappeared(stream.id) }
+                }
+            }
+            .padding(12)
+        }
+        .overlay {
+            LoadStateView(state: listState, emptyText: emptyText) {
+                retry()
+            }
+        }
+    }
+
+    private func retry() {
+        if model.categories.isEmpty {
+            model.retryCategories(startWithFavorites: startWithFavorites)
+        } else {
+            model.retryStreams()
+        }
+    }
+
+    /// Waits for focus to settle before updating the detail pane, so holding
+    /// down on the remote doesn't redraw it for every row passed.
+    private func focusChanged(to streamID: Int?) {
+        focusTask?.cancel()
+        guard let streamID else { return }
+        let model = model
+        let epg = epg
+        focusTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            model.showDetail(for: streamID)
+            epg.prioritize(streamID)
+        }
+    }
+
     private func play(_ stream: LiveStream) {
-        let now = model.epg[stream.id]?.first { $0.isOnAir() }
+        let current = epg.schedule(for: stream.id)?.current(at: Date())
         nowPlaying = PlayableItem(
             id: "live-\(stream.id)",
             title: stream.name,
-            subtitle: now?.title,
+            subtitle: current?.title,
             url: model.client.liveURL(streamID: stream.id, format: app.liveFormat),
             isLive: true
         )
     }
 }
 
-/// Right-hand card: logo, what's on now with progress, and what's next.
-struct NowNextPanel: View {
-    let stream: LiveStream?
-    let entries: [EPGEntry]?
+/// One channel: number, logo, name, what's on now and how far along it is.
+private struct LiveChannelRow: View {
+    let stream: LiveStream
+    let epg: EPGStore
+    let isFavorite: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            if let stream {
-                ChannelLogo(url: stream.iconURL, size: CGSize(width: 200, height: 120))
-                Text(stream.name)
-                    .font(.tvSubtitle)
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(2)
+        let now = epg.now
+        let schedule = epg.schedule(for: stream.id)
+        let current = schedule?.current(at: now)
 
-                if let entries {
-                    let upcoming = entries.filter { $0.end > Date() }
-                    if let now = upcoming.first(where: { $0.isOnAir() }) {
-                        programme(label: "On now", entry: now, isLive: true)
+        HStack(spacing: 18) {
+            if let number = stream.number {
+                Text("\(number)")
+                    .font(.tvSmall.monospacedDigit())
+                    .tvSecondary()
+                    .frame(width: 60, alignment: .trailing)
+            }
+            ChannelLogo(url: stream.iconURL)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    Text(stream.name)
+                        .font(.tvMeta.weight(.semibold))
+                        .lineLimit(1)
+                    if isFavorite {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 18))
                     }
-                    if let next = upcoming.first(where: { $0.start > Date() }) {
-                        programme(label: "Up next", entry: next, isLive: false)
-                    }
-                    if upcoming.isEmpty {
-                        Text("No guide data")
-                            .font(.tvMeta)
+                }
+                Text(subtitle(schedule: schedule, current: current, now: now))
+                    .font(.tvSmall)
+                    .tvSecondary()
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            if let current {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Text(remainingLabel(minutes: EPGSchedule.minutesLeft(in: current, at: now)))
+                        .font(.tvSmall.monospacedDigit())
+                        .tvSecondary()
+                        .lineLimit(1)
+                    FocusAwareProgressBar(value: current.progress(at: now))
+                        .frame(width: 130)
+                }
+            }
+        }
+    }
+
+    private func subtitle(schedule: EPGSchedule?, current: EPGEntry?, now: Date) -> String {
+        // Not fetched yet: keep the line's height without saying anything.
+        guard let schedule else { return " " }
+        if let current { return current.title }
+        if let next = schedule.next(after: now) {
+            return "Next at \(next.start.shortTime): \(next.title)"
+        }
+        return "No guide data"
+    }
+}
+
+/// Right-hand side: a still for the focused channel and the next few hours.
+private struct ChannelDetailPane: View {
+    let stream: LiveStream?
+    let epg: EPGStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if let stream {
+                let now = epg.now
+                let schedule = epg.schedule(for: stream.id)
+
+                ChannelStill(stream: stream, current: schedule?.current(at: now))
+                    .frame(maxHeight: 440)
+
+                HStack(spacing: 16) {
+                    if let number = stream.number {
+                        Text("\(number)")
+                            .font(.tvHeading.monospacedDigit())
                             .foregroundStyle(Theme.muted)
                     }
-                } else {
-                    ProgressView()
-                        .tint(Theme.accent)
+                    Text(stream.name)
+                        .font(.tvSubtitle)
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                    if stream.hasArchive {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 26))
+                            .foregroundStyle(Theme.muted)
+                    }
                 }
+
+                timeline(schedule, now: now)
             } else {
-                Eyebrow(text: "Guide")
-                Text("Move to a channel to see what's on.")
+                Eyebrow(text: "Live TV")
+                Text("Pick a channel to see what's on.")
                     .font(.tvMeta)
                     .foregroundStyle(Theme.muted)
             }
             Spacer(minLength: 0)
         }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        .padding(.top, 12)
     }
 
-    private func programme(label: String, entry: EPGEntry, isLive: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                if isLive {
-                    Circle()
-                        .fill(Theme.live)
-                        .frame(width: 12, height: 12)
+    @ViewBuilder
+    private func timeline(_ schedule: EPGSchedule?, now: Date) -> some View {
+        if let schedule {
+            let upcoming = schedule.upcoming(from: now, limit: 4)
+            if upcoming.isEmpty {
+                Text("No guide data for this channel.")
+                    .font(.tvMeta)
+                    .foregroundStyle(Theme.muted)
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(upcoming) { entry in
+                        TimelineRow(entry: entry, now: now)
+                    }
                 }
-                Eyebrow(text: label, color: isLive ? Theme.accent : Theme.muted)
             }
-            Text(entry.title)
-                .font(.tvBody.weight(.semibold))
-                .foregroundStyle(Theme.text)
-                .lineLimit(2)
-            Text("\(entry.start.shortTime) to \(entry.end.shortTime)")
-                .font(.tvSmall)
+        } else {
+            ProgressView()
+                .tint(Theme.accent)
+        }
+    }
+}
+
+/// Logo card standing in for the picture, with what's on along the bottom.
+private struct ChannelStill: View {
+    let stream: LiveStream
+    let current: EPGEntry?
+
+    var body: some View {
+        ZStack {
+            Theme.surface
+            ChannelLogo(url: stream.iconURL, size: CGSize(width: 320, height: 200))
+        }
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+        .overlay(alignment: .topLeading) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(Theme.live)
+                    .frame(width: 12, height: 12)
+                Text("Live")
+                    .font(.tvSmall.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Theme.background.opacity(0.7), in: Capsule())
+            .padding(20)
+        }
+        .overlay(alignment: .bottomLeading) {
+            if let current {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(current.title)
+                        .font(.tvBody.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                    if let summary = current.summary, !summary.isEmpty {
+                        Text(summary)
+                            .font(.tvSmall)
+                            .foregroundStyle(Theme.muted)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.background.opacity(0.78))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+    }
+}
+
+private struct TimelineRow: View {
+    let entry: EPGEntry
+    let now: Date
+
+    var body: some View {
+        let onAir = entry.isOnAir(at: now)
+
+        HStack(spacing: 20) {
+            Text(entry.start.shortTime)
+                .font(.tvSmall.monospacedDigit())
                 .foregroundStyle(Theme.muted)
-            if isLive {
-                ProgressBar(value: entry.progress())
-                if let summary = entry.summary {
-                    Text(summary)
-                        .font(.tvSmall)
-                        .foregroundStyle(Theme.muted)
-                        .lineLimit(4)
+                .frame(width: 120, alignment: .leading)
+            Text(entry.title)
+                .font(.tvMeta.weight(onAir ? .semibold : .regular))
+                .foregroundStyle(onAir ? Theme.text : Theme.muted)
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            if onAir {
+                ProgressBar(value: entry.progress(at: now))
+                    .frame(width: 160)
+                Text(remainingLabel(minutes: EPGSchedule.minutesLeft(in: entry, at: now)))
+                    .font(.tvSmall.monospacedDigit())
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(minHeight: 56)
+        .background {
+            if onAir {
+                RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                    .fill(Theme.surface)
+            }
+        }
+    }
+}
+
+/// Every live category in a grid, for providers with far more than fit in the chip row.
+private struct CategoryPicker: View {
+    let categories: [XtreamCategory]
+    let selectedID: String?
+    let onPick: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: 4)
+
+    var body: some View {
+        ZStack {
+            Theme.background.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Eyebrow(text: "Live TV")
+                    Text("All categories")
+                        .font(.tvTitle)
+                        .foregroundStyle(Theme.text)
+                }
+                .padding(.leading, 36)
+
+                ScrollView(.vertical) {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                        Button {
+                            pick(LiveTVModel.favoritesID)
+                        } label: {
+                            Label("Favorites", systemImage: "heart.fill")
+                        }
+                        .buttonStyle(TVRowButtonStyle(
+                            isSelected: selectedID == LiveTVModel.favoritesID,
+                            minHeight: 64,
+                            font: .tvMeta
+                        ))
+
+                        ForEach(categories) { category in
+                            Button {
+                                pick(category.id)
+                            } label: {
+                                Text(category.name)
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(TVRowButtonStyle(isSelected: category.id == selectedID, minHeight: 64, font: .tvMeta))
+                        }
+                    }
+                    .padding(12)
                 }
             }
         }
+        .preferredColorScheme(.dark)
+    }
+
+    private func pick(_ id: String) {
+        onPick(id)
+        dismiss()
     }
 }
