@@ -99,7 +99,4 @@ IPTVnator (github.com/4gray/iptvnator, MIT, Electron + Angular, TypeScript) alre
 - Don't commit the `.xcodeproj` or `App/Info.plist`; XcodeGen generates both. Change `project.yml` instead.
 - In shell instructions, use the hyphenated `docker-compose` command, not `docker compose`.
 - UI copy and docs: plain, direct language, no em dashes.
-
-## Advisor
-
-Consult the advisor before a plan locks, after hitting the same error twice, and before marking a task done.
+- Consult the advisor before a plan locks, after hitting the same error twice, and before marking a task done.
