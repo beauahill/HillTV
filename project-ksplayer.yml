@@ -1,0 +1,25 @@
+# Same project plus KSPlayer (FFmpeg playback for raw .ts, mkv, odd codecs).
+#   xcodegen generate --spec project-ksplayer.yml
+#
+# Notes:
+# - KSPlayer's free build is GPL-3.0. Fine for personal use; selling the app
+#   means open-sourcing it or buying their LGPL license.
+# - Its package uses unsafeFlags, which SwiftPM only allows for branch/revision
+#   dependencies, so this tracks `main`. Pin a revision once it builds clean.
+# - It ships a prebuilt binary compiled with a recent Swift, so build with the
+#   newest stable Xcode.
+include:
+  - path: project.yml
+
+packages:
+  KSPlayer:
+    url: https://github.com/kingslay/KSPlayer.git
+    branch: main
+
+targets:
+  HillTV:
+    dependencies:
+      - package: KSPlayer
+        product: KSPlayer
+      - package: KSPlayer
+        product: KSPlayerUI

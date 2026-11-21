@@ -1,0 +1,54 @@
+# XcodeGen spec. The .xcodeproj is generated, never committed.
+#   brew install xcodegen
+#   xcodegen generate                          # AVPlayer only (HLS)
+#   xcodegen generate --spec project-ksplayer.yml   # adds KSPlayer (FFmpeg)
+name: HillTV
+
+options:
+  bundleIdPrefix: com.beauahill
+  deploymentTarget:
+    tvOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Swift 6 compiler, Swift 5 language mode. Flip to 6 once the app settles.
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  HillTVCore:
+    path: Packages/HillTVCore
+
+targets:
+  HillTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: App
+    dependencies:
+      - package: HillTVCore
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: HillTV
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities: [arm64]
+        UIUserInterfaceStyle: Dark
+        # Most IPTV panels are plain http. Fine for a personal sideload; an
+        # App Store build would need a narrower exception list.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.beauahill.hilltv
+        TARGETED_DEVICE_FAMILY: "3"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
+    scheme:
+      gatherCoverageData: false

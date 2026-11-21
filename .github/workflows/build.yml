@@ -1,0 +1,150 @@
+name: Build tvOS IPA
+
+# Builds an UNSIGNED HillTV.ipa on a GitHub macOS runner. atvloadly (or
+# Sideloadly) signs it with your Apple ID at install time.
+#
+# Repo variables (Settings > Secrets and variables > Actions > Variables):
+#   USE_KSPLAYER=true          build every run with KSPlayer (FFmpeg)
+#   PUBLISH_MAIN_BUILDS=false  stop publishing a prerelease for each push to main
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ksplayer:
+        description: Build with KSPlayer (FFmpeg) for this run
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  USE_KSPLAYER: ${{ (inputs.ksplayer && 'true') || vars.USE_KSPLAYER || 'false' }}
+  SCHEME: HillTV
+
+jobs:
+  core-tests:
+    # Cheap Linux minutes. Catches parser/model breakage before spending macOS time.
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test HillTVCore
+        run: swift test --package-path Packages/HillTVCore
+
+  build:
+    needs: core-tests
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install tools
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        run: |
+          if [ "$USE_KSPLAYER" = "true" ]; then
+            echo "Building WITH KSPlayer"
+            xcodegen generate --spec project-ksplayer.yml
+          else
+            echo "Building with AVPlayer only"
+            xcodegen generate
+          fi
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .build/SourcePackages
+          key: spm-${{ runner.os }}-ks${{ env.USE_KSPLAYER }}-${{ hashFiles('project*.yml', 'Packages/**/Package.swift') }}
+          restore-keys: spm-${{ runner.os }}-ks${{ env.USE_KSPLAYER }}-
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -version
+          xcodebuild build \
+            -project HillTV.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath .build/DerivedData \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | xcbeautify --renderer github-actions
+
+      - name: Package IPA
+        id: package
+        run: |
+          APP=".build/DerivedData/Build/Products/Release-appletvos/HillTV.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::Built app not found at $APP"
+            exit 1
+          fi
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Info.plist")
+          NAME="HillTV-${VERSION}-b${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:7}"
+          if [ "$USE_KSPLAYER" = "true" ]; then NAME="${NAME}-ks"; fi
+          mkdir -p dist/Payload
+          cp -R "$APP" dist/Payload/
+          (cd dist && zip -qry "${NAME}.ipa" Payload && rm -rf Payload)
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          ls -lh dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: dist/*.ipa
+          retention-days: 14
+
+      - name: Publish release (version tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.ipa
+          generate_release_notes: true
+
+      # A prerelease per push to main means atvloadly can track this repo's
+      # releases (with "include prereleases" on) and update the Apple TV by itself.
+      - name: Publish prerelease (main)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.PUBLISH_MAIN_BUILDS != 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: "false"
+          files: dist/*.ipa
+          body: Automatic build of ${{ github.sha }} from main.
+
+      - name: Prune old main prereleases (keep 5)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.PUBLISH_MAIN_BUILDS != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName,isPrerelease \
+            -q '.[] | select(.isPrerelease) | select(.tagName | startswith("build-")) | .tagName' \
+            | tail -n +6 \
+            | while read -r tag; do
+                echo "Deleting $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done
