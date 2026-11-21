@@ -220,12 +220,12 @@ private struct SidebarLabelStyle: LabelStyle {
     }
 }
 
-/// "Hill" in white, "TV" in mint. Text only, no logo artwork yet.
+/// "Hill" in white, "TV" in the accent color. Text only, no logo artwork yet.
 struct Wordmark: View {
     var size: CGFloat = 44
 
     var body: some View {
         (Text("Hill").foregroundStyle(Theme.text) + Text("TV").foregroundStyle(Theme.accent))
-            .font(.system(size: size, weight: .bold, design: .serif))
+            .font(.system(size: size, weight: .heavy))
     }
 }

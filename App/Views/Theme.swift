@@ -2,22 +2,22 @@ import SwiftUI
 
 /// Design tokens for a 1920x1080 canvas viewed from across the room.
 ///
-/// - Dark, green-tinted surfaces.
-/// - Mint marks focus and progress. Selection is a mint bar, never a ring.
-/// - Serif for content and channel titles, sans for everything else.
+/// - Dark, blue-tinted surfaces.
+/// - Blue marks focus, selection and progress. Red is only for "live".
+/// - Sans throughout. The big display size is condensed and bold.
 /// - Nothing smaller than 20 pt.
 enum Theme {
-    static let background = Color(hex: 0x0B0F0E)
-    static let sidebar = Color(hex: 0x0F1513)
-    static let surface = Color(hex: 0x141C19)
-    static let control = Color(hex: 0x202C28)
-    static let controlRaised = Color(hex: 0x2A3A34)
-    static let text = Color(hex: 0xEEF3F1)
-    static let muted = Color(hex: 0xB9C6C1)
-    static let accent = Color(hex: 0x8FE3C4)
-    static let onAccent = Color(hex: 0x0B2117)
+    static let background = Color(hex: 0x0D1117)
+    static let sidebar = Color(hex: 0x0A0D13)
+    static let surface = Color(hex: 0x151B26)
+    static let control = Color(hex: 0x1D2636)
+    static let controlRaised = Color(hex: 0x283448)
+    static let text = Color(hex: 0xE8ECF4)
+    static let muted = Color(hex: 0xA6B0C2)
+    static let accent = Color(hex: 0x5B9BFF)
+    static let onAccent = Color(hex: 0x07101F)
     static let live = Color(hex: 0xE5484D)
-    static let line = Color(hex: 0x2A3832)
+    static let line = Color(hex: 0x1F2836)
 
     static let radius: CGFloat = 14
     static let focusRing: CGFloat = 5
@@ -31,10 +31,10 @@ enum Theme {
 }
 
 extension Font {
-    static let tvDisplay = Font.system(size: 76, weight: .regular, design: .serif)
-    static let tvTitle = Font.system(size: 52, weight: .semibold, design: .serif)
-    static let tvSerifHeading = Font.system(size: 38, weight: .semibold, design: .serif)
-    static let tvHeading = Font.system(size: 32, weight: .medium)
+    static let tvDisplay = Font.system(size: 76, weight: .bold).width(.condensed)
+    static let tvTitle = Font.system(size: 52, weight: .bold)
+    static let tvSubtitle = Font.system(size: 38, weight: .semibold)
+    static let tvHeading = Font.system(size: 32, weight: .semibold)
     static let tvBody = Font.system(size: 28)
     static let tvMeta = Font.system(size: 24)
     static let tvSmall = Font.system(size: 20)
@@ -55,7 +55,7 @@ extension Color {
 
 // MARK: - Focus-aware text colors
 
-/// Inside a focused row the fill turns mint, so text has to flip to dark.
+/// Inside a focused row the fill turns blue, so text has to flip to dark.
 /// `isFocused` reads the nearest focusable ancestor, which is the button.
 private struct FocusAwareForeground: ViewModifier {
     let secondary: Bool
@@ -83,7 +83,7 @@ extension View {
 // MARK: - Button styles
 
 /// Sidebar items, categories, channels, episodes, settings choices.
-/// Focus: mint fill with dark text. Selected: a mint bar on the leading edge.
+/// Focus: blue fill with dark text. Selected: a blue bar on the leading edge.
 struct TVRowButtonStyle: ButtonStyle {
     var isSelected = false
     var minHeight: CGFloat = Theme.rowHeight
@@ -128,7 +128,7 @@ struct TVRowButtonStyle: ButtonStyle {
 }
 
 /// Standalone actions and chips: Watch, Sign In, Try Again, seasons.
-/// Prominent buttons are light at rest; every button turns mint with a ring on focus.
+/// Prominent buttons are light at rest; every button turns blue with a ring on focus.
 struct TVActionButtonStyle: ButtonStyle {
     var prominent = false
     var isSelected = false
@@ -224,7 +224,7 @@ struct Pill: View {
     }
 }
 
-/// Thin mint progress bar on a dark track.
+/// Thin progress bar on a dark track.
 struct ProgressBar: View {
     let value: Double
 

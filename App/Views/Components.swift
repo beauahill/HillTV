@@ -82,7 +82,7 @@ struct ChannelRow: View {
     }
 }
 
-/// Poster tile for movies and series. Focus scales the artwork and draws a mint ring.
+/// Poster tile for movies and series. Focus scales the artwork and draws an accent ring.
 struct PosterCard: View {
     let title: String
     var subtitle: String?

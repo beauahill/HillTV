@@ -201,7 +201,7 @@ struct NowNextPanel: View {
             if let stream {
                 ChannelLogo(url: stream.iconURL, size: CGSize(width: 200, height: 120))
                 Text(stream.name)
-                    .font(.tvSerifHeading)
+                    .font(.tvSubtitle)
                     .foregroundStyle(Theme.text)
                     .lineLimit(2)
 

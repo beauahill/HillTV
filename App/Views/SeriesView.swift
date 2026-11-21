@@ -182,7 +182,7 @@ struct SeriesDetailView: View {
 
             Eyebrow(text: "Series")
             Text(series.name)
-                .font(.tvSerifHeading)
+                .font(.tvSubtitle)
                 .foregroundStyle(Theme.text)
                 .lineLimit(3)
             FlowLayout(spacing: 10) {
