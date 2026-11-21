@@ -26,7 +26,7 @@ Done and tested on Linux: `HillTVCore` (Xtream client, lenient decoding, URL bui
 
 Written but never compiled: everything under `App/`. It was checked for syntax and reviewed against tvOS 17 APIs. The first CI run is the first real type check. Likely trouble spots, in order:
 
-1. `KSPlayerEngineView.swift` (only compiled with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(url:options:title:)`, `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
+1. `KSPlayerEngineView.swift` (only compiled with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
 2. `@Observable` classes with `didSet` (`AppModel.engine`).
 3. `HillTVApp.init()` calling the `@MainActor` `KSPlayerSupport.configure()`.
 
