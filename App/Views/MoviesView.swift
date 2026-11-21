@@ -71,18 +71,12 @@ final class MoviesModel {
 }
 
 struct MoviesView: View {
-    @State private var model: MoviesModel
+    let model: MoviesModel
     @State private var nowPlaying: PlayableItem?
     @FocusState private var focusedCategory: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 240, maximum: 260), spacing: 48)]
-
-    init(client: XtreamClient) {
-        _model = State(initialValue: MoviesModel(client: client))
-    }
-
     var body: some View {
-        HStack(alignment: .top, spacing: 40) {
+        HStack(alignment: .top, spacing: 24) {
             CategoryColumn(
                 title: "Movies",
                 categories: model.categories,
@@ -91,27 +85,26 @@ struct MoviesView: View {
             ) { category in
                 Task { await model.select(category.id) }
             }
-            .frame(width: 440)
+            .frame(width: 360)
             .overlay { LoadStateView(state: model.categoryState, emptyText: "No movie categories") }
 
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 60) {
-                    ForEach(model.movies) { movie in
-                        Button {
-                            nowPlaying = PlayableItem(
-                                id: "movie-\(movie.id)",
-                                title: movie.name,
-                                subtitle: movie.rating.map { String(format: "Rating %.1f", $0) },
-                                url: model.client.movieURL(movie),
-                                isLive: false
-                            )
-                        } label: {
-                            PosterCard(title: movie.name, imageURL: movie.posterURL)
-                        }
-                        .buttonStyle(.card)
-                    }
+            PosterGrid(items: model.movies) { movie in
+                Button {
+                    nowPlaying = PlayableItem(
+                        id: "movie-\(movie.id)",
+                        title: movie.name,
+                        subtitle: movie.rating.map { String(format: "Rating %.1f", $0) },
+                        url: model.client.movieURL(movie),
+                        isLive: false
+                    )
+                } label: {
+                    PosterCard(
+                        title: movie.name,
+                        subtitle: movie.rating.map { String(format: "★ %.1f", $0) },
+                        imageURL: movie.posterURL
+                    )
                 }
-                .padding(40)
+                .buttonStyle(TVCardButtonStyle())
             }
             .frame(maxWidth: .infinity)
             .overlay {

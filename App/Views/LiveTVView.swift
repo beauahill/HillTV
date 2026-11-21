@@ -106,17 +106,13 @@ final class LiveTVModel {
 
 struct LiveTVView: View {
     @Environment(AppModel.self) private var app
-    @State private var model: LiveTVModel
+    let model: LiveTVModel
     @State private var nowPlaying: PlayableItem?
     @FocusState private var focusedCategory: String?
     @FocusState private var focusedStream: Int?
 
-    init(client: XtreamClient) {
-        _model = State(initialValue: LiveTVModel(client: client))
-    }
-
     var body: some View {
-        HStack(alignment: .top, spacing: 40) {
+        HStack(alignment: .top, spacing: 24) {
             CategoryColumn(
                 title: "Categories",
                 categories: model.categories,
@@ -125,14 +121,14 @@ struct LiveTVView: View {
             ) { category in
                 Task { await model.select(category.id) }
             }
-            .frame(width: 440)
+            .frame(width: 360)
             .overlay { LoadStateView(state: model.categoryState, emptyText: "No live categories") }
 
             channelList
                 .frame(maxWidth: .infinity)
 
             NowNextPanel(stream: model.focusedStream, entries: model.focusedStream.flatMap { model.epg[$0.id] })
-                .frame(width: 520)
+                .frame(width: 460)
         }
         .task { await model.loadCategories() }
         .onChange(of: focusedCategory) { _, newValue in
@@ -145,17 +141,27 @@ struct LiveTVView: View {
     }
 
     private var channelList: some View {
-        List(model.streams) { stream in
-            Button {
-                play(stream)
-            } label: {
-                ChannelRow(stream: stream, isFavorite: app.favorites.contains(stream.id))
-            }
-            .focused($focusedStream, equals: stream.id)
-            .contextMenu {
-                Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
-                    app.favorites.toggle(stream)
+        VStack(alignment: .leading, spacing: 12) {
+            Eyebrow(text: "Channels")
+                .padding(.leading, 36)
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(model.streams) { stream in
+                        Button {
+                            play(stream)
+                        } label: {
+                            ChannelRow(stream: stream, isFavorite: app.favorites.contains(stream.id))
+                        }
+                        .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
+                        .focused($focusedStream, equals: stream.id)
+                        .contextMenu {
+                            Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
+                                app.favorites.toggle(stream)
+                            }
+                        }
+                    }
                 }
+                .padding(12)
             }
         }
         .overlay {
@@ -177,59 +183,75 @@ struct LiveTVView: View {
     }
 }
 
-/// Right-hand panel: logo, what's on now with progress, and what's next.
+/// Right-hand card: logo, what's on now with progress, and what's next.
 struct NowNextPanel: View {
     let stream: LiveStream?
     let entries: [EPGEntry]?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 28) {
             if let stream {
-                ChannelLogo(url: stream.iconURL, size: CGSize(width: 240, height: 140))
+                ChannelLogo(url: stream.iconURL, size: CGSize(width: 200, height: 120))
                 Text(stream.name)
-                    .font(.title3.bold())
+                    .font(.tvSerifHeading)
+                    .foregroundStyle(Theme.text)
                     .lineLimit(2)
 
                 if let entries {
                     let upcoming = entries.filter { $0.end > Date() }
                     if let now = upcoming.first(where: { $0.isOnAir() }) {
-                        programme(label: "NOW", entry: now, showProgress: true)
+                        programme(label: "On now", entry: now, isLive: true)
                     }
                     if let next = upcoming.first(where: { $0.start > Date() }) {
-                        programme(label: "NEXT", entry: next, showProgress: false)
+                        programme(label: "Up next", entry: next, isLive: false)
                     }
                     if upcoming.isEmpty {
                         Text("No guide data")
-                            .foregroundStyle(.secondary)
+                            .font(.tvMeta)
+                            .foregroundStyle(Theme.muted)
                     }
                 } else {
                     ProgressView()
+                        .tint(Theme.accent)
                 }
+            } else {
+                Eyebrow(text: "Guide")
+                Text("Move to a channel to see what's on.")
+                    .font(.tvMeta)
+                    .foregroundStyle(Theme.muted)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
     }
 
-    private func programme(label: String, entry: EPGEntry, showProgress: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label)
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
+    private func programme(label: String, entry: EPGEntry, isLive: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                if isLive {
+                    Circle()
+                        .fill(Theme.live)
+                        .frame(width: 12, height: 12)
+                }
+                Eyebrow(text: label, color: isLive ? Theme.accent : Theme.muted)
+            }
             Text(entry.title)
-                .font(.headline)
+                .font(.tvBody.weight(.semibold))
+                .foregroundStyle(Theme.text)
                 .lineLimit(2)
             Text("\(entry.start.shortTime) to \(entry.end.shortTime)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if showProgress {
-                ProgressView(value: entry.progress())
-            }
-            if let summary = entry.summary, showProgress {
-                Text(summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
+                .font(.tvSmall)
+                .foregroundStyle(Theme.muted)
+            if isLive {
+                ProgressBar(value: entry.progress())
+                if let summary = entry.summary {
+                    Text(summary)
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(4)
+                }
             }
         }
     }

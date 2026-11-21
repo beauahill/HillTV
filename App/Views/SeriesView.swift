@@ -71,18 +71,12 @@ final class SeriesModel {
 }
 
 struct SeriesView: View {
-    @State private var model: SeriesModel
+    let model: SeriesModel
     @FocusState private var focusedCategory: String?
-
-    private let columns = [GridItem(.adaptive(minimum: 240, maximum: 260), spacing: 48)]
-
-    init(client: XtreamClient) {
-        _model = State(initialValue: SeriesModel(client: client))
-    }
 
     var body: some View {
         NavigationStack {
-            HStack(alignment: .top, spacing: 40) {
+            HStack(alignment: .top, spacing: 24) {
                 CategoryColumn(
                     title: "Series",
                     categories: model.categories,
@@ -91,19 +85,14 @@ struct SeriesView: View {
                 ) { category in
                     Task { await model.select(category.id) }
                 }
-                .frame(width: 440)
+                .frame(width: 360)
                 .overlay { LoadStateView(state: model.categoryState, emptyText: "No series categories") }
 
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 60) {
-                        ForEach(model.items) { item in
-                            NavigationLink(value: item) {
-                                PosterCard(title: item.name, imageURL: item.coverURL)
-                            }
-                            .buttonStyle(.card)
-                        }
+                PosterGrid(items: model.items) { item in
+                    NavigationLink(value: item) {
+                        PosterCard(title: item.name, subtitle: item.seriesYear, imageURL: item.coverURL)
                     }
-                    .padding(40)
+                    .buttonStyle(TVCardButtonStyle())
                 }
                 .frame(maxWidth: .infinity)
                 .overlay {
@@ -121,6 +110,15 @@ struct SeriesView: View {
     }
 }
 
+extension SeriesItem {
+    /// First four digits of the release date, when the panel sends one.
+    var seriesYear: String? {
+        guard let releaseDate, releaseDate.count >= 4 else { return nil }
+        let year = String(releaseDate.prefix(4))
+        return Int(year) == nil ? nil : year
+    }
+}
+
 struct SeriesDetailView: View {
     let client: XtreamClient
     let series: SeriesItem
@@ -135,87 +133,96 @@ struct SeriesDetailView: View {
         return info.seasons.first { $0.number == selectedSeason } ?? info.seasons.first
     }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 60) {
-            VStack(alignment: .leading, spacing: 24) {
-                AsyncImage(url: info?.coverURL ?? series.coverURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else {
-                        Color.gray.opacity(0.25)
-                    }
-                }
-                .frame(width: 320, height: 480)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                Text(series.name)
-                    .font(.title3.bold())
-                if let genre = series.genre {
-                    Text(genre)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let plot = info?.plot ?? series.plot {
-                    Text(plot)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(10)
-                }
-                Spacer()
-            }
-            .frame(width: 420)
-
-            VStack(alignment: .leading, spacing: 30) {
-                if let info, info.seasons.count > 1 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 20) {
-                            ForEach(info.seasons) { season in
-                                Button("Season \(season.number)") {
-                                    selectedSeason = season.number
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(season.number == currentSeason?.number ? Color.accentColor : nil)
-                            }
-                        }
-                        .padding(.vertical, 20)
-                    }
-                }
-
-                List(currentSeason?.episodes ?? []) { episode in
-                    Button {
-                        play(episode)
-                    } label: {
-                        HStack(spacing: 24) {
-                            Text("\(episode.episodeNumber ?? 0)")
-                                .font(.callout.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 60, alignment: .trailing)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(episode.title)
-                                    .lineLimit(1)
-                                if let plot = episode.plot {
-                                    Text(plot)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-                            Spacer()
-                            if let seconds = episode.durationSeconds, seconds > 0 {
-                                Text("\(seconds / 60) min")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                .overlay { LoadStateView(state: state, emptyText: "No episodes listed") { Task { await load() } } }
-            }
-            .frame(maxWidth: .infinity)
+    private var pills: [String] {
+        var result: [String] = []
+        if let year = series.seriesYear { result.append(year) }
+        if let genre = series.genre, !genre.isEmpty { result.append(genre) }
+        if let rating = series.rating, rating > 0 { result.append(String(format: "★ %.1f", rating)) }
+        if let info, !info.seasons.isEmpty {
+            result.append(info.seasons.count == 1 ? "1 season" : "\(info.seasons.count) seasons")
         }
-        .padding(.horizontal, 40)
+        return result
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 56) {
+            overview
+                .frame(width: 460)
+            episodes
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 32)
+        .background { Backdrop(url: info?.coverURL ?? series.coverURL) }
         .task { await load() }
         .playerCover(item: $nowPlaying)
+    }
+
+    private var overview: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            AsyncImage(url: info?.coverURL ?? series.coverURL) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    Theme.control
+                }
+            }
+            .frame(width: 240, height: 360)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+
+            Eyebrow(text: "Series")
+            Text(series.name)
+                .font(.tvSerifHeading)
+                .foregroundStyle(Theme.text)
+                .lineLimit(3)
+            FlowLayout(spacing: 10) {
+                ForEach(pills, id: \.self) { Pill(text: $0) }
+            }
+            if let plot = info?.plot ?? series.plot {
+                Text(plot)
+                    .font(.tvSmall)
+                    .foregroundStyle(Theme.muted)
+                    .lineSpacing(4)
+                    .lineLimit(6)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var episodes: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Eyebrow(text: "Episodes")
+                .padding(.leading, 12)
+
+            if let info, info.seasons.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 20) {
+                        ForEach(info.seasons) { season in
+                            Button("Season \(season.number)") {
+                                selectedSeason = season.number
+                            }
+                            .buttonStyle(TVActionButtonStyle(isSelected: season.number == currentSeason?.number))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 16)
+                }
+            }
+
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(currentSeason?.episodes ?? []) { episode in
+                        Button {
+                            play(episode)
+                        } label: {
+                            EpisodeRow(episode: episode)
+                        }
+                        .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
+                    }
+                }
+                .padding(12)
+            }
+            .overlay { LoadStateView(state: state, emptyText: "No episodes listed") { Task { await load() } } }
+        }
     }
 
     private func load() async {
@@ -241,5 +248,35 @@ struct SeriesDetailView: View {
             url: client.episodeURL(episode),
             isLive: false
         )
+    }
+}
+
+private struct EpisodeRow: View {
+    let episode: Episode
+
+    var body: some View {
+        HStack(spacing: 24) {
+            Text("\(episode.episodeNumber ?? 0)")
+                .font(.tvMeta.monospacedDigit())
+                .tvSecondary()
+                .frame(width: 56, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(episode.title)
+                    .font(.tvMeta.weight(.semibold))
+                    .lineLimit(1)
+                if let plot = episode.plot {
+                    Text(plot)
+                        .font(.tvSmall)
+                        .tvSecondary()
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 12)
+            if let seconds = episode.durationSeconds, seconds > 0 {
+                Text("\(seconds / 60) min")
+                    .font(.tvSmall)
+                    .tvSecondary()
+            }
+        }
     }
 }

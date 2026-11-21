@@ -12,32 +12,29 @@ struct CategoryColumn: View {
     let onSelect: (XtreamCategory) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.secondary)
-                .padding(.leading, 20)
-            List(categories) { category in
-                Button {
-                    onSelect(category)
-                } label: {
-                    HStack {
-                        Text(category.name)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        if category.id == selectedID {
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            Eyebrow(text: title)
+                .padding(.leading, 36)
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(categories) { category in
+                        Button {
+                            onSelect(category)
+                        } label: {
+                            Text(category.name)
+                                .lineLimit(1)
                         }
+                        .buttonStyle(TVRowButtonStyle(isSelected: category.id == selectedID, minHeight: 64, font: .tvMeta))
+                        .focused(focus, equals: category.id)
                     }
                 }
-                .focused(focus, equals: category.id)
+                .padding(12)
             }
         }
     }
 }
 
-/// Channel logo with a fallback. Logos are frequently dead links.
+/// Channel logo on a dark tile, with a fallback. Logos are frequently dead links.
 struct ChannelLogo: View {
     let url: URL?
     var size = CGSize(width: 96, height: 64)
@@ -48,11 +45,13 @@ struct ChannelLogo: View {
                 image.resizable().scaledToFit()
             } else {
                 Image(systemName: "tv")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: size.height * 0.4))
+                    .foregroundStyle(Theme.muted)
             }
         }
+        .padding(size.height * 0.12)
         .frame(width: size.width, height: size.height)
+        .background(Theme.control, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -61,12 +60,12 @@ struct ChannelRow: View {
     let isFavorite: Bool
 
     var body: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: 20) {
             if let number = stream.number {
                 Text("\(number)")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 70, alignment: .trailing)
+                    .font(.tvMeta.monospacedDigit())
+                    .tvSecondary()
+                    .frame(width: 64, alignment: .trailing)
             }
             ChannelLogo(url: stream.iconURL)
             Text(stream.name)
@@ -74,44 +73,84 @@ struct ChannelRow: View {
             Spacer(minLength: 12)
             if stream.hasArchive {
                 Image(systemName: "clock.arrow.circlepath")
-                    .foregroundStyle(.secondary)
+                    .tvSecondary()
             }
             if isFavorite {
-                Image(systemName: "star.fill")
-                    .foregroundStyle(.yellow)
+                Image(systemName: "heart.fill")
             }
         }
     }
 }
 
-/// Poster tile for movies and series.
+/// Poster tile for movies and series. Focus scales the artwork and draws a mint ring.
 struct PosterCard: View {
     let title: String
+    var subtitle: String?
     let imageURL: URL?
+    var width: CGFloat = 220
+
+    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 16) {
             AsyncImage(url: imageURL) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFill()
                 } else {
                     ZStack {
-                        Color.gray.opacity(0.25)
+                        Theme.control
                         Image(systemName: "film")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 48))
+                            .foregroundStyle(Theme.muted)
                     }
                 }
             }
-            .frame(width: 240, height: 360)
-            .clipped()
+            .frame(width: width, height: width * 1.5)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            .overlay {
+                if isFocused {
+                    RoundedRectangle(cornerRadius: Theme.radius + 7, style: .continuous)
+                        .stroke(Theme.accent, lineWidth: Theme.focusRing)
+                        .padding(-9)
+                }
+            }
+            .scaleEffect(isFocused ? Theme.focusScale : 1)
+            .shadow(color: .black.opacity(isFocused ? 0.6 : 0), radius: 24, y: 12)
 
-            Text(title)
-                .font(.caption)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(width: 220, height: 70)
-                .padding(.horizontal, 10)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.tvSmall.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(2)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: width, height: 76, alignment: .topLeading)
+        }
+        .animation(Theme.focusAnimation, value: isFocused)
+    }
+}
+
+/// Poster grid used by Movies and Series.
+struct PosterGrid<Item: Identifiable, Tile: View>: View {
+    let items: [Item]
+    @ViewBuilder let tile: (Item) -> Tile
+
+    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 240), spacing: 40, alignment: .top)]
+
+    var body: some View {
+        ScrollView(.vertical) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 48) {
+                ForEach(items) { item in
+                    tile(item)
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 40)
         }
     }
 }
