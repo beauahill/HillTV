@@ -22,12 +22,18 @@ Anything that imports SwiftUI, UIKit, AVKit or Security can only be compiled in 
 
 ## Status when handed off
 
-`HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser. 17 XCTest cases, passing in CI's Linux job.
+`HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser, `WatchHistory`, `SearchIndex`, `GuideWindow`. 34 XCTest cases, passing in CI's Linux job.
 
 `App/` (AVPlayer build) compiles green in CI as of Nov 2026, including the IPTVnator-style restyle: sidebar shell, Home with hero and rails, movie and series detail pages. First device test (Nov 2026): installs and runs. Focus between sidebar and content works, and so does long-press Add to Favorites.
 
 - Menu at a section's root used to quit the app. Now `MainShell` sends focus to the sidebar via `.onExitCommand`, only when that section's `NavigationPath` (on its model) is empty, so detail pages still pop normally. Needs a device check.
 - Focus rings were cut off at scroll view edges. Poster grids, Home rails and season chips now use `.scrollClipDisabled()`, and `MainShell` masks the content so overflow can't cover the sidebar. Needs a device check.
+
+Added after that test, compiled but not yet run on the TV:
+
+- Continue watching (AVPlayer only). Progress is saved every 10 s and when the player closes. Check that Menu during playback still closes the player and the position is saved, that Resume lands at the right spot, and that the Home rail updates.
+- Search (`.searchable` inside the custom shell). Check the keyboard appears, Menu from the keyboard behaves (the shell's `.onExitCommand` may send focus to the sidebar instead of closing it), and how long the first catalog load takes on a big provider.
+- Guide grid. Check focus moves cell to cell and row to row, the "now" line lines up, and listings fill in as you scroll. Times rely on `parsePanelDate`, which assumes UTC when a panel sends no timestamps, so some panels may show shifted times.
 
 Still never compiled: `KSPlayerEngineView.swift` (only built with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
 
@@ -45,13 +51,15 @@ App/Model/FavoritesStore.swift
 App/Model/LoadState.swift    LoadState enum + LoadStateView placeholder
 App/Player/                  PlayableItem, PlayerView, AVPlayer + KSPlayer engines
 App/Views/Theme.swift        Color/type tokens, button styles, Eyebrow, Pill, ProgressBar, FlowLayout, Backdrop
-App/Views/                   Home, Login, LiveTV (+ NowNextPanel), Movies + MovieDetail, Series (+ detail), Favorites, Settings, shared components
+App/Views/                   Home, Search, Login, LiveTV (+ NowNextPanel), Guide, Movies + MovieDetail, Series (+ detail), Favorites, Settings, shared components (Rail, PosterCard, ChannelTile)
+App/Model/WatchHistoryStore.swift  Continue watching, per account, cleared on sign out
 Packages/HillTVCore/         No UI imports. Builds on tvOS, macOS, Linux.
 ```
 
 Patterns to keep:
 
-- Each browse section (Home, Live TV, Movies, Series) has an `@MainActor @Observable` model held as `@State` in `MainShell` and passed into the view, so switching sections in the sidebar keeps categories and caches. Models cache per category and drop late responses if the user moved on.
+- Watch history stores IDs and rebuilds stream URLs with `movieURL(streamID:)` / `episodeURL(episodeID:)`. Never persist stream URLs: they contain the password.
+- Each browse section (Home, Search, Live TV, Guide, Movies, Series) has an `@MainActor @Observable` model held as `@State` in `MainShell` and passed into the view, so switching sections in the sidebar keeps categories and caches. Models cache per category and drop late responses if the user moved on.
 - Styling goes through `App/Views/Theme.swift`: color and type tokens, `TVRowButtonStyle` (rows, sidebar), `TVActionButtonStyle` (actions, chips), `TVCardButtonStyle` with `PosterCard` (posters). Mint is for focus and progress only; selection is a mint bar. Use `ScrollView` + `LazyVStack` with these styles instead of `List`, whose focus platter fights the custom rows. The look follows IPTVnator's TV edition tokens (`apps/tv/src/tokens.css`), without its name or logo.
 - Category columns select on focus with a 350 ms debounce, so up/down on the remote browses without clicking. EPG for the focused channel is fetched after 400 ms of focus.
 - `AppModel` goes in the environment. `.playerCover(item:)` presents the player and passes engine and user agent explicitly rather than relying on environment propagation into the cover.
@@ -78,12 +86,12 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 2. Turn on KSPlayer (`USE_KSPLAYER=true`), get it green, then pin a KSPlayer revision in `project-ksplayer.yml` instead of `branch: main`.
 3. App icon and Top Shelf brand assets.
 4. Channel zapping inside the player (up/down for prev/next channel in the current category), plus "last channel" quick switch.
-5. Full XMLTV guide grid. Download `client.xmltvURL` (often gzipped, 10-100 MB), stream-parse with `XMLParser` off the main thread, store in SQLite in Caches, map by `epg_channel_id`.
-6. Search across live, movies and series.
+5. Full XMLTV guide. The Guide grid exists but uses short EPG per channel; switch its data source to XMLTV for full-day listings. Download `client.xmltvURL` (often gzipped, 10-100 MB), stream-parse with `XMLParser` off the main thread, store in SQLite in Caches, map by `epg_channel_id`.
+6. Search: done (name matching). Later: search EPG titles once XMLTV is stored.
 7. Catch-up / timeshift for channels with `tv_archive`. Xtream URL shape: `/timeshift/{user}/{pass}/{durationMinutes}/{Y-m-d:H-M}/{streamID}.ts`, where the date is in the panel's timezone (`server_info.timezone`), not the viewer's.
 8. M3U playlists as a second source type, using the existing `M3UParser`.
 9. Stalker/Ministra portals.
-10. Resume positions, watch history, "continue watching" rail on Home. (VOD info pages are done.)
+10. Resume and continue watching for KSPlayer (AVPlayer done). Watch history for live channels ("last channel").
 11. Multiple accounts.
 
 Related known gap: `EPGEntry.parsePanelDate` assumes UTC when a panel sends no timestamps. It should use the panel timezone from `server_info`.
