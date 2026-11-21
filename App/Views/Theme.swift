@@ -23,7 +23,8 @@ enum Theme {
     static let focusRing: CGFloat = 5
     static let focusScale: CGFloat = 1.06
     static let selectedBar: CGFloat = 5
-    static let sidebarWidth: CGFloat = 340
+    static let railWidth: CGFloat = 104
+    static let railExpandedWidth: CGFloat = 340
     static let rowHeight: CGFloat = 72
     static let listRowHeight: CGFloat = 96
 

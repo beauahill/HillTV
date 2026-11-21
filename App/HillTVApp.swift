@@ -84,7 +84,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 }
 
-/// Sidebar on the left, the selected section on the right. Section models
+/// Icon rail on the left, the selected section on the right. Section models
 /// live here so switching sections keeps each one's categories and caches.
 struct MainShell: View {
     let client: XtreamClient
@@ -111,21 +111,23 @@ struct MainShell: View {
     var body: some View {
         HStack(spacing: 0) {
             Sidebar(selection: $section, focus: $sidebarFocus)
-                .frame(width: Theme.sidebarWidth)
+                .frame(width: Theme.railWidth, alignment: .leading)
                 .focusSection()
+                // The expanded rail draws over the content without moving it.
+                .zIndex(1)
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(.leading, 24)
                 // Scroll views draw past their edges so focus rings aren't cut off.
-                // Keep that overflow out of the sidebar, but let it run up, down and right.
+                // Keep that overflow out of the rail, but let it run up, down and right.
                 .mask {
                     Rectangle()
                         .padding(.vertical, -400)
                         .padding(.trailing, -400)
                 }
                 .focusSection()
-                // At a section's root, Menu goes back to the sidebar instead of quitting.
+                // At a section's root, Menu goes back to the rail instead of quitting.
                 // With a detail page pushed, nil leaves Menu to pop the page as usual.
                 .onExitCommand(perform: exitAction)
         }
@@ -169,54 +171,134 @@ struct MainShell: View {
     }
 }
 
-/// Selection changes on click, not focus, so passing through the sidebar
-/// on the way back from the content doesn't switch sections.
+/// Icon rail. It widens to show labels while one of its items has focus.
+///
+/// The layout never changes: every button stays an icon-sized square inside
+/// the collapsed width, and the wider panel, highlight and labels are drawn
+/// past that frame, over the content. Focus geometry is the same collapsed
+/// or expanded, and the content doesn't reflow.
+///
+/// Selection changes on click, not focus, so passing through the rail on the
+/// way back from the content doesn't switch sections.
 struct Sidebar: View {
     @Binding var selection: AppSection
     var focus: FocusState<AppSection?>.Binding
 
+    private static let primary = AppSection.allCases.filter { $0 != .settings }
+
+    private var expanded: Bool { focus.wrappedValue != nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            VStack(alignment: .leading, spacing: 6) {
-                Wordmark(size: 44)
-                Eyebrow(text: "Live · Movies · Series", color: Theme.muted)
-            }
-            .padding(.leading, 24)
-            .padding(.bottom, 56)
+            RailMark(expanded: expanded)
+                .padding(.bottom, 40)
 
-            ForEach(AppSection.allCases) { item in
-                Button {
-                    selection = item
-                } label: {
-                    Label(item.title, systemImage: item.systemImage)
-                        .labelStyle(SidebarLabelStyle())
-                }
-                .buttonStyle(TVRowButtonStyle(isSelected: item == selection, font: .tvMeta.weight(.medium)))
-                .focused(focus, equals: item)
+            ForEach(Self.primary) { item in
+                button(item)
             }
 
             Spacer(minLength: 0)
+
+            button(.settings)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
+        .padding(.horizontal, Sidebar.inset)
+        .padding(.vertical, 20)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background {
+        .background(alignment: .leading) {
             Theme.sidebar
                 .overlay(alignment: .trailing) {
                     Theme.line.frame(width: 1)
                 }
                 .ignoresSafeArea()
+                .frame(width: expanded ? Theme.railExpandedWidth : Theme.railWidth)
+        }
+        .animation(Theme.focusAnimation, value: expanded)
+    }
+
+    fileprivate static let inset: CGFloat = 12
+    fileprivate static let itemSide: CGFloat = Theme.railWidth - inset * 2
+
+    private func button(_ item: AppSection) -> some View {
+        Button {
+            selection = item
+        } label: {
+            Image(systemName: item.systemImage)
+        }
+        .buttonStyle(RailButtonStyle(title: item.title, isSelected: item == selection, expanded: expanded))
+        .focused(focus, equals: item)
+    }
+}
+
+/// Focus: blue fill with dark icon and label. Selected: blue tint and icon.
+private struct RailButtonStyle: ButtonStyle {
+    let title: String
+    let isSelected: Bool
+    let expanded: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        RailBody(configuration: configuration, title: title, isSelected: isSelected, expanded: expanded)
+    }
+
+    private struct RailBody: View {
+        let configuration: ButtonStyleConfiguration
+        let title: String
+        let isSelected: Bool
+        let expanded: Bool
+        @Environment(\.isFocused) private var isFocused
+
+        private var fill: Color {
+            if isFocused { return Theme.accent }
+            return isSelected ? Theme.accent.opacity(0.18) : Color.clear
+        }
+
+        private var iconColor: Color {
+            if isFocused { return Theme.onAccent }
+            return isSelected ? Theme.accent : Theme.muted
+        }
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(iconColor)
+                .frame(width: Sidebar.itemSide, height: Theme.rowHeight)
+                .background(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                        .fill(fill)
+                        .frame(width: expanded ? Theme.railExpandedWidth - Sidebar.inset * 2 : Sidebar.itemSide)
+                }
+                .overlay(alignment: .leading) {
+                    Text(title)
+                        .font(.tvMeta.weight(.medium))
+                        .foregroundStyle(isFocused ? Theme.onAccent : Theme.text)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.leading, Sidebar.itemSide + 4)
+                        .opacity(expanded ? 1 : 0)
+                }
+                .contentShape(Rectangle())
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .animation(Theme.focusAnimation, value: isFocused)
         }
     }
 }
 
-private struct SidebarLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 20) {
-            configuration.icon
-                .frame(width: 32)
-            configuration.title
-        }
+/// The "H" badge at the top of the rail, with the wordmark beside it when expanded.
+private struct RailMark: View {
+    let expanded: Bool
+
+    var body: some View {
+        Text("H")
+            .font(.system(size: 36, weight: .heavy).width(.condensed))
+            .foregroundStyle(Theme.onAccent)
+            .frame(width: 56, height: 56)
+            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            .frame(width: Sidebar.itemSide)
+            .overlay(alignment: .leading) {
+                Wordmark(size: 36)
+                    .fixedSize()
+                    .padding(.leading, Sidebar.itemSide + 4)
+                    .opacity(expanded ? 1 : 0)
+            }
     }
 }
 
