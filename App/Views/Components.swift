@@ -88,6 +88,8 @@ struct PosterCard: View {
     var subtitle: String?
     let imageURL: URL?
     var width: CGFloat = 220
+    /// Watched share, drawn as a bar along the bottom of the artwork.
+    var progress: Double?
 
     @Environment(\.isFocused) private var isFocused
 
@@ -106,6 +108,12 @@ struct PosterCard: View {
                 }
             }
             .frame(width: width, height: width * 1.5)
+            .overlay(alignment: .bottom) {
+                if let progress {
+                    ProgressBar(value: progress)
+                        .padding(12)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
             .overlay {
                 if isFocused {
@@ -155,6 +163,17 @@ struct PosterGrid<Item: Identifiable, Tile: View>: View {
         // Focused posters scale past the scroll view's edge; don't cut off their rings.
         .scrollClipDisabled()
     }
+}
+
+/// "1:04:12" or "34:12".
+func clockString(_ seconds: Double) -> String {
+    let total = max(0, Int(seconds.isFinite ? seconds : 0))
+    let hours = total / 3600
+    let minutes = (total % 3600) / 60
+    let secs = total % 60
+    return hours > 0
+        ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+        : String(format: "%d:%02d", minutes, secs)
 }
 
 extension Date {

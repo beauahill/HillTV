@@ -133,6 +133,7 @@ struct SeriesDetailView: View {
     let client: XtreamClient
     let series: SeriesItem
 
+    @Environment(AppModel.self) private var app
     @State private var info: SeriesInfo?
     @State private var state: LoadState = .loading
     @State private var selectedSeason: Int?
@@ -227,7 +228,7 @@ struct SeriesDetailView: View {
                         Button {
                             play(episode)
                         } label: {
-                            EpisodeRow(episode: episode)
+                            EpisodeRow(episode: episode, progress: app.watchHistory.entry(id: "episode-\(episode.id)")?.progress)
                         }
                         .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
                     }
@@ -254,18 +255,33 @@ struct SeriesDetailView: View {
     private func play(_ episode: Episode) {
         let season = episode.season ?? currentSeason?.number
         let label = [season.map { "S\($0)" }, episode.episodeNumber.map { "E\($0)" }].compactMap { $0 }.joined()
+        let subtitle = label.isEmpty ? episode.title : "\(label) · \(episode.title)"
+        let template = WatchEntry(
+            kind: .episode,
+            streamID: episode.id,
+            containerExtension: episode.containerExtension,
+            title: series.name,
+            subtitle: subtitle,
+            artworkURL: info?.coverURL ?? series.coverURL,
+            position: 0,
+            duration: nil
+        )
+        // Episodes resume automatically; the row's bar shows how far in.
         nowPlaying = PlayableItem(
             id: "episode-\(episode.id)",
             title: series.name,
-            subtitle: label.isEmpty ? episode.title : "\(label) · \(episode.title)",
+            subtitle: subtitle,
             url: client.episodeURL(episode),
-            isLive: false
+            isLive: false,
+            history: template,
+            startAt: app.watchHistory.entry(id: template.id)?.position
         )
     }
 }
 
 private struct EpisodeRow: View {
     let episode: Episode
+    var progress: Double?
 
     var body: some View {
         HStack(spacing: 24) {
@@ -282,6 +298,11 @@ private struct EpisodeRow: View {
                         .font(.tvSmall)
                         .tvSecondary()
                         .lineLimit(2)
+                }
+                if let progress {
+                    ProgressBar(value: progress)
+                        .frame(maxWidth: 320)
+                        .padding(.top, 4)
                 }
             }
             Spacer(minLength: 12)

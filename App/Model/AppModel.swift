@@ -21,6 +21,7 @@ final class AppModel {
     }
 
     let favorites = FavoritesStore()
+    let watchHistory = WatchHistoryStore()
 
     static let userAgent: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -60,6 +61,7 @@ final class AppModel {
         }
         let client = XtreamClient(account: account, userAgent: Self.userAgent)
         self.client = client
+        watchHistory.activate(account: account)
         phase = .signedIn
 
         // Refresh account details without holding up the UI.
@@ -84,6 +86,7 @@ final class AppModel {
         let info = try await client.authenticate()
 
         AccountStore.save(account)
+        watchHistory.activate(account: account)
         self.client = client
         authInfo = info
         accountWarning = nil
@@ -92,6 +95,7 @@ final class AppModel {
 
     func signOut() {
         AccountStore.delete()
+        watchHistory.clear()
         client = nil
         authInfo = nil
         accountWarning = nil

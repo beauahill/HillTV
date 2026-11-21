@@ -122,6 +122,30 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 56) {
                     hero
 
+                    if !app.watchHistory.entries.isEmpty {
+                        rail(title: "Continue watching") {
+                            ForEach(app.watchHistory.entries) { entry in
+                                Button {
+                                    nowPlaying = PlayableItem.resuming(entry, client: model.client)
+                                } label: {
+                                    PosterCard(
+                                        title: entry.title,
+                                        subtitle: entry.subtitle,
+                                        imageURL: entry.artworkURL,
+                                        width: 200,
+                                        progress: entry.progress
+                                    )
+                                }
+                                .buttonStyle(TVCardButtonStyle())
+                                .contextMenu {
+                                    Button("Remove from Continue Watching", role: .destructive) {
+                                        app.watchHistory.remove(id: entry.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if !app.favorites.channels.isEmpty {
                         rail(title: "Favorite channels") {
                             ForEach(app.favorites.channels) { stream in

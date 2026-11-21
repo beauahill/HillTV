@@ -8,12 +8,14 @@ struct MovieDetailView: View {
     let client: XtreamClient
     let movie: VODStream
 
+    @Environment(AppModel.self) private var app
     @State private var info: VODInfo?
     @State private var nowPlaying: PlayableItem?
     @FocusState private var watchFocused: Bool
 
     private var title: String { info?.name ?? movie.name }
     private var poster: URL? { info?.posterURL ?? movie.posterURL }
+    private var saved: WatchEntry? { app.watchHistory.entry(id: "movie-\(movie.id)") }
 
     private var pills: [String] {
         var result: [String] = []
@@ -57,13 +59,30 @@ struct MovieDetailView: View {
                 }
 
                 HStack(spacing: 24) {
-                    Button {
-                        play()
-                    } label: {
-                        Label("Watch now", systemImage: "play.fill")
+                    if let saved {
+                        Button {
+                            play(from: saved.position)
+                        } label: {
+                            Label("Resume from \(clockString(saved.position))", systemImage: "play.fill")
+                        }
+                        .buttonStyle(TVActionButtonStyle(prominent: true))
+                        .focused($watchFocused)
+
+                        Button {
+                            play(from: nil)
+                        } label: {
+                            Label("Start over", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(TVActionButtonStyle())
+                    } else {
+                        Button {
+                            play(from: nil)
+                        } label: {
+                            Label("Watch now", systemImage: "play.fill")
+                        }
+                        .buttonStyle(TVActionButtonStyle(prominent: true))
+                        .focused($watchFocused)
                     }
-                    .buttonStyle(TVActionButtonStyle(prominent: true))
-                    .focused($watchFocused)
                 }
                 .padding(.vertical, 12)
 
@@ -100,13 +119,25 @@ struct MovieDetailView: View {
         info = try? await client.vodInfo(streamID: movie.id)
     }
 
-    private func play() {
+    private func play(from position: Double?) {
+        let template = WatchEntry(
+            kind: .movie,
+            streamID: String(movie.id),
+            containerExtension: movie.containerExtension,
+            title: title,
+            subtitle: info?.year,
+            artworkURL: poster,
+            position: 0,
+            duration: nil
+        )
         nowPlaying = PlayableItem(
             id: "movie-\(movie.id)",
             title: title,
             subtitle: info?.year,
             url: client.movieURL(movie),
-            isLive: false
+            isLive: false,
+            history: template,
+            startAt: position
         )
     }
 }
