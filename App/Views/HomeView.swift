@@ -21,6 +21,8 @@ final class HomeModel {
     private(set) var featured: VODStream?
     private(set) var featuredInfo: VODInfo?
     private(set) var state: LoadState = .idle
+    /// Pushed detail pages. Empty means Home is at its root.
+    var path = NavigationPath()
 
     private static let railCount = 3
     private static let itemsPerRail = 20
@@ -109,13 +111,13 @@ final class HomeModel {
 }
 
 struct HomeView: View {
-    let model: HomeModel
+    @Bindable var model: HomeModel
 
     @Environment(AppModel.self) private var app
     @State private var nowPlaying: PlayableItem?
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $model.path) {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 56) {
                     hero
@@ -162,6 +164,8 @@ struct HomeView: View {
                 }
                 .padding(.bottom, 60)
             }
+            // Focused posters scale past the scroll view's edge; don't cut off their rings.
+            .scrollClipDisabled()
             .navigationDestination(for: VODStream.self) { movie in
                 MovieDetailView(client: model.client, movie: movie)
             }
@@ -235,6 +239,7 @@ struct HomeView: View {
                 .padding(.horizontal, 40)
                 .padding(.vertical, 24)
             }
+            .scrollClipDisabled()
         }
     }
 

@@ -88,6 +88,7 @@ struct MainShell: View {
     @State private var live: LiveTVModel
     @State private var movies: MoviesModel
     @State private var series: SeriesModel
+    @FocusState private var sidebarFocus: AppSection?
 
     init(client: XtreamClient) {
         self.client = client
@@ -99,14 +100,38 @@ struct MainShell: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Sidebar(selection: $section)
+            Sidebar(selection: $section, focus: $sidebarFocus)
                 .frame(width: Theme.sidebarWidth)
                 .focusSection()
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(.leading, 24)
+                // Scroll views draw past their edges so focus rings aren't cut off.
+                // Keep that overflow out of the sidebar, but let it run up, down and right.
+                .mask {
+                    Rectangle()
+                        .padding(.vertical, -400)
+                        .padding(.trailing, -400)
+                }
                 .focusSection()
+                // At a section's root, Menu goes back to the sidebar instead of quitting.
+                // With a detail page pushed, nil leaves Menu to pop the page as usual.
+                .onExitCommand(perform: exitAction)
+        }
+    }
+
+    private var exitAction: (() -> Void)? {
+        guard contentAtRoot else { return nil }
+        return { sidebarFocus = section }
+    }
+
+    private var contentAtRoot: Bool {
+        switch section {
+        case .home: return home.path.isEmpty
+        case .movies: return movies.path.isEmpty
+        case .series: return series.path.isEmpty
+        case .live, .favorites, .settings: return true
         }
     }
 
@@ -133,6 +158,7 @@ struct MainShell: View {
 /// on the way back from the content doesn't switch sections.
 struct Sidebar: View {
     @Binding var selection: AppSection
+    var focus: FocusState<AppSection?>.Binding
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -151,6 +177,7 @@ struct Sidebar: View {
                         .labelStyle(SidebarLabelStyle())
                 }
                 .buttonStyle(TVRowButtonStyle(isSelected: item == selection, font: .tvMeta.weight(.medium)))
+                .focused(focus, equals: item)
             }
 
             Spacer(minLength: 0)

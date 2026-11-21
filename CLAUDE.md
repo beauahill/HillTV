@@ -24,11 +24,10 @@ Anything that imports SwiftUI, UIKit, AVKit or Security can only be compiled in 
 
 `HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser. 17 XCTest cases, passing in CI's Linux job.
 
-`App/` (AVPlayer build) compiles green in CI as of Nov 2026, including the IPTVnator-style restyle: sidebar shell, Home with hero and rails, movie and series detail pages. It has not been run on a device yet. Check on the TV first:
+`App/` (AVPlayer build) compiles green in CI as of Nov 2026, including the IPTVnator-style restyle: sidebar shell, Home with hero and rails, movie and series detail pages. First device test (Nov 2026): installs and runs. Focus between sidebar and content works, and so does long-press Add to Favorites.
 
-1. Menu/Back from the root of a section. With the system tab bar gone it probably exits the app instead of returning focus to the sidebar. Don't patch it blind: an exit handler can break popping detail pages.
-2. Focus moving between the sidebar and content (both are `.focusSection()`), and long-press Add to Favorites on the custom channel rows.
-3. Focus rings and scale clipping at the edges of Home rails and poster grids; text contrast on focused (mint) rows.
+- Menu at a section's root used to quit the app. Now `MainShell` sends focus to the sidebar via `.onExitCommand`, only when that section's `NavigationPath` (on its model) is empty, so detail pages still pop normally. Needs a device check.
+- Focus rings were cut off at scroll view edges. Poster grids, Home rails and season chips now use `.scrollClipDisabled()`, and `MainShell` masks the content so overflow can't cover the sidebar. Needs a device check.
 
 Still never compiled: `KSPlayerEngineView.swift` (only built with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
 

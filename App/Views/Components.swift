@@ -152,6 +152,8 @@ struct PosterGrid<Item: Identifiable, Tile: View>: View {
             .padding(.horizontal, 32)
             .padding(.vertical, 40)
         }
+        // Focused posters scale past the scroll view's edge; don't cut off their rings.
+        .scrollClipDisabled()
     }
 }
 

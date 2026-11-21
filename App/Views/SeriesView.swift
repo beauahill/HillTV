@@ -12,6 +12,8 @@ final class SeriesModel {
     private(set) var selectedCategoryID: String?
     private(set) var items: [SeriesItem] = []
     private(set) var itemState: LoadState = .idle
+    /// Pushed detail pages. Empty means Series is at its root.
+    var path = NavigationPath()
 
     private var cache: [String: [SeriesItem]] = [:]
     private var selectTask: Task<Void, Never>?
@@ -79,11 +81,11 @@ final class SeriesModel {
 }
 
 struct SeriesView: View {
-    let model: SeriesModel
+    @Bindable var model: SeriesModel
     @FocusState private var focusedCategory: String?
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $model.path) {
             HStack(alignment: .top, spacing: 24) {
                 CategoryColumn(
                     title: "Series",
@@ -214,6 +216,7 @@ struct SeriesDetailView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 16)
                 }
+                .scrollClipDisabled()
             }
 
             ScrollView(.vertical) {

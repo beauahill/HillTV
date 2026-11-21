@@ -12,6 +12,8 @@ final class MoviesModel {
     private(set) var selectedCategoryID: String?
     private(set) var movies: [VODStream] = []
     private(set) var movieState: LoadState = .idle
+    /// Pushed detail pages. Empty means Movies is at its root.
+    var path = NavigationPath()
 
     private var cache: [String: [VODStream]] = [:]
     private var selectTask: Task<Void, Never>?
@@ -79,11 +81,11 @@ final class MoviesModel {
 }
 
 struct MoviesView: View {
-    let model: MoviesModel
+    @Bindable var model: MoviesModel
     @FocusState private var focusedCategory: String?
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $model.path) {
             HStack(alignment: .top, spacing: 24) {
                 CategoryColumn(
                     title: "Movies",
