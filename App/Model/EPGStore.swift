@@ -18,6 +18,8 @@ final class EPGStore {
     private(set) var now = Date()
 
     private var fetchedAt: [Int: Date] = [:]
+    /// Rows on screen now, so listings that run out can be refreshed in place.
+    private var visible: Set<Int> = []
     private var appearTasks: [Int: Task<Void, Never>] = [:]
     private var waiting: [Int] = []
     private var queued: Set<Int> = []
@@ -40,12 +42,18 @@ final class EPGStore {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(30))
             now = Date()
+            // tvOS keeps apps around for days. Rows that stay on screen never
+            // "appear" again, so refresh the ones whose listings have run out.
+            for streamID in visible {
+                enqueue(streamID)
+            }
         }
     }
 
     /// A row came on screen. Fetches only if it stays there for a moment, so
     /// fast scrolling doesn't flood the panel.
     func rowAppeared(_ streamID: Int) {
+        visible.insert(streamID)
         guard needsFetch(streamID), !queued.contains(streamID), appearTasks[streamID] == nil else { return }
         appearTasks[streamID] = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
@@ -56,6 +64,7 @@ final class EPGStore {
     }
 
     func rowDisappeared(_ streamID: Int) {
+        visible.remove(streamID)
         appearTasks[streamID]?.cancel()
         appearTasks[streamID] = nil
         if let index = waiting.firstIndex(of: streamID) {

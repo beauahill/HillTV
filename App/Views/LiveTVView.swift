@@ -157,9 +157,10 @@ struct LiveTVView: View {
     // MARK: Preview
 
     /// The preview holds a connection, so it only runs while it can be seen:
-    /// not behind the player, not in the background.
+    /// not behind the player or the category grid, not in the background.
     private var previewAllowed: Bool {
-        app.previewMode != .off && app.previewSupported && nowPlaying == nil && scenePhase == .active
+        app.previewMode != .off && app.previewSupported
+            && nowPlaying == nil && !showingCategories && scenePhase == .active
     }
 
     private struct PreviewKey: Hashable {

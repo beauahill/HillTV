@@ -112,7 +112,8 @@ struct MainShell: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Sidebar(selection: $section, focus: $sidebarFocus)
+            // Read here, where the focus state lives, so the rail redraws when focus enters or leaves it.
+            Sidebar(selection: $section, focus: $sidebarFocus, expanded: sidebarFocus != nil)
                 .frame(width: Theme.railWidth, alignment: .leading)
                 .focusSection()
                 // The expanded rail draws over the content without moving it.
@@ -187,10 +188,10 @@ struct MainShell: View {
 struct Sidebar: View {
     @Binding var selection: AppSection
     var focus: FocusState<AppSection?>.Binding
+    /// True while one of the rail's items has focus.
+    let expanded: Bool
 
     private static let primary = AppSection.allCases.filter { $0 != .settings }
-
-    private var expanded: Bool { focus.wrappedValue != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
