@@ -4,7 +4,7 @@ A personal IPTV player for Apple TV, in the spirit of UHF and Chillio. SwiftUI, 
 
 ## What works in this starter
 
-Xtream login stored in the Keychain. A left sidebar for navigation, with a dark, mint-accented look modeled on IPTVnator's TV edition. Home with a featured movie and rails for favorite channels, movies and series. Live TV with a category column, channel list and a now/next panel from the short EPG. Favorites (long-press Select on a channel). Movies with poster grids and detail pages, Series with season and episode lists. Settings with account status, connection count and a player picker. Two playback engines: Apple's AVPlayer (default, HLS only) and KSPlayer (FFmpeg, optional, plays raw `.ts`, mkv, AC3 and DTS).
+Xtream login stored in the Keychain. A left sidebar for navigation, with a dark, mint-accented look modeled on IPTVnator's TV edition. Home with a featured movie and rails for continue watching, favorite channels, movies and series. Search by name across channels, movies and series. Live TV with a category column, channel list and a now/next panel from the short EPG. A guide grid showing the next three hours per channel. Favorites (long-press Select on a channel). Movies with poster grids and detail pages, Series with season and episode lists. Movies and episodes resume where you stopped (AVPlayer builds). Settings with account status, connection count and a player picker. Two playback engines: Apple's AVPlayer (default, HLS only) and KSPlayer (FFmpeg, optional, plays raw `.ts`, mkv, AC3 and DTS).
 
 The networking and parsing code lives in `Packages/HillTVCore` and has unit tests that run on Linux or macOS. The SwiftUI layer has only been checked for syntax, so the first CI run is its first real compile. Expect a fix or two.
 

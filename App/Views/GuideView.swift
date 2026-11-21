@@ -22,6 +22,10 @@ final class GuideModel {
     private var channelCache: [String: [LiveStream]] = [:]
     private var selectTask: Task<Void, Never>?
     private var appearTasks: [Int: Task<Void, Never>] = [:]
+    /// Window start each channel's listings were fetched for. Older means stale.
+    private var fetchedFor: [Int: Date] = [:]
+    /// Rows on screen now, so a window change can refresh them.
+    private var visible: Set<Int> = []
     private var waiting: [Int] = []
     private var queued: Set<Int> = []
     private var active = 0
@@ -96,15 +100,23 @@ final class GuideModel {
     /// Moves the window forward once the current half hour has passed.
     func refreshWindowIfNeeded() {
         let current = GuideWindow.starting(at: Date(), hours: 3)
-        if current.start != window.start {
-            window = current
+        guard current.start != window.start else { return }
+        window = current
+        // tvOS keeps apps around for days; refetch what's on screen for the new window.
+        for streamID in visible where needsFetch(streamID) {
+            enqueue(streamID)
         }
     }
 
     // MARK: Listings, fetched lazily per visible row
 
+    private func needsFetch(_ streamID: Int) -> Bool {
+        fetchedFor[streamID] != window.start
+    }
+
     func rowAppeared(_ streamID: Int) {
-        guard listings[streamID] == nil, !queued.contains(streamID), appearTasks[streamID] == nil else { return }
+        visible.insert(streamID)
+        guard needsFetch(streamID), !queued.contains(streamID), appearTasks[streamID] == nil else { return }
         // Only fetch rows that stay visible, so fast scrolling doesn't flood the panel.
         appearTasks[streamID] = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
@@ -115,6 +127,7 @@ final class GuideModel {
     }
 
     func rowDisappeared(_ streamID: Int) {
+        visible.remove(streamID)
         appearTasks[streamID]?.cancel()
         appearTasks[streamID] = nil
         if let index = waiting.firstIndex(of: streamID) {
@@ -124,7 +137,7 @@ final class GuideModel {
     }
 
     private func enqueue(_ streamID: Int) {
-        guard listings[streamID] == nil, !queued.contains(streamID) else { return }
+        guard needsFetch(streamID), !queued.contains(streamID) else { return }
         queued.insert(streamID)
         waiting.append(streamID)
         pump()
@@ -135,10 +148,23 @@ final class GuideModel {
         let limit = Self.entriesPerChannel
         while active < Self.maxConcurrent, let streamID = waiting.popLast() {
             active += 1
+            let windowStart = window.start
             Task { [weak self] in
-                let entries = (try? await client.shortEPG(streamID: streamID, limit: limit)) ?? []
+                let entries: [EPGEntry]?
+                do {
+                    entries = try await client.shortEPG(streamID: streamID, limit: limit)
+                } catch {
+                    entries = nil
+                }
                 guard let self else { return }
-                self.listings[streamID] = entries
+                if let entries {
+                    self.listings[streamID] = entries
+                    self.fetchedFor[streamID] = windowStart
+                } else if self.listings[streamID] == nil {
+                    // Failed: show the empty state, but don't mark it fetched,
+                    // so the row tries again next time it comes on screen.
+                    self.listings[streamID] = []
+                }
                 self.queued.remove(streamID)
                 self.active -= 1
                 self.pump()
@@ -243,7 +269,9 @@ struct GuideView: View {
             .padding(.trailing, 12)
 
             HStack(spacing: 0) {
-                ForEach(model.window.cells(for: model.listings[stream.id] ?? [])) { cell in
+                // Positional IDs: when listings arrive, the focused first cell stays the same view.
+                let cells = model.window.cells(for: model.listings[stream.id] ?? [])
+                ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                     Button {
                         play(stream, now: cell.entry)
                     } label: {
