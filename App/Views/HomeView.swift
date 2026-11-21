@@ -123,7 +123,7 @@ struct HomeView: View {
                     hero
 
                     if !app.watchHistory.entries.isEmpty {
-                        rail(title: "Continue watching") {
+                        Rail(title: "Continue watching") {
                             ForEach(app.watchHistory.entries) { entry in
                                 Button {
                                     nowPlaying = PlayableItem.resuming(entry, client: model.client)
@@ -147,7 +147,7 @@ struct HomeView: View {
                     }
 
                     if !app.favorites.channels.isEmpty {
-                        rail(title: "Favorite channels") {
+                        Rail(title: "Favorite channels") {
                             ForEach(app.favorites.channels) { stream in
                                 Button {
                                     play(stream)
@@ -160,7 +160,7 @@ struct HomeView: View {
                     }
 
                     ForEach(model.movieRails) { rail in
-                        self.rail(title: "Movies · \(rail.category.name)") {
+                        Rail(title: "Movies · \(rail.category.name)") {
                             ForEach(rail.items) { movie in
                                 NavigationLink(value: movie) {
                                     PosterCard(title: movie.name, imageURL: movie.posterURL, width: 200)
@@ -171,7 +171,7 @@ struct HomeView: View {
                     }
 
                     ForEach(model.seriesRails) { rail in
-                        self.rail(title: "Series · \(rail.category.name)") {
+                        Rail(title: "Series · \(rail.category.name)") {
                             ForEach(rail.items) { item in
                                 NavigationLink(value: item) {
                                     PosterCard(title: item.name, subtitle: item.seriesYear, imageURL: item.coverURL, width: 200)
@@ -250,23 +250,6 @@ struct HomeView: View {
         }
     }
 
-    private func rail<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.tvHeading)
-                .foregroundStyle(Theme.text)
-                .padding(.horizontal, 40)
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 32) {
-                    content()
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 24)
-            }
-            .scrollClipDisabled()
-        }
-    }
-
     private func play(_ stream: LiveStream) {
         nowPlaying = PlayableItem(
             id: "live-\(stream.id)",
@@ -308,32 +291,6 @@ private struct HeroArt: View {
         }
         .clipped()
         .ignoresSafeArea(edges: .top)
-    }
-}
-
-/// Logo card for a live channel in a rail.
-private struct ChannelTile: View {
-    let stream: LiveStream
-    @Environment(\.isFocused) private var isFocused
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ChannelLogo(url: stream.iconURL, size: CGSize(width: 260, height: 160))
-                .overlay {
-                    if isFocused {
-                        RoundedRectangle(cornerRadius: 17, style: .continuous)
-                            .stroke(Theme.accent, lineWidth: Theme.focusRing)
-                            .padding(-9)
-                    }
-                }
-                .scaleEffect(isFocused ? Theme.focusScale : 1)
-            Text(stream.name)
-                .font(.tvSmall.weight(.semibold))
-                .foregroundStyle(Theme.text)
-                .lineLimit(1)
-                .frame(width: 260, alignment: .leading)
-        }
-        .animation(Theme.focusAnimation, value: isFocused)
     }
 }
 

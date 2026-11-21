@@ -143,6 +143,56 @@ struct PosterCard: View {
     }
 }
 
+/// Logo card for a live channel in a rail.
+struct ChannelTile: View {
+    let stream: LiveStream
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ChannelLogo(url: stream.iconURL, size: CGSize(width: 260, height: 160))
+                .overlay {
+                    if isFocused {
+                        RoundedRectangle(cornerRadius: 17, style: .continuous)
+                            .stroke(Theme.accent, lineWidth: Theme.focusRing)
+                            .padding(-9)
+                    }
+                }
+                .scaleEffect(isFocused ? Theme.focusScale : 1)
+            Text(stream.name)
+                .font(.tvSmall.weight(.semibold))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .frame(width: 260, alignment: .leading)
+        }
+        .animation(Theme.focusAnimation, value: isFocused)
+    }
+}
+
+/// Titled horizontal row of tiles, used on Home and in Search.
+struct Rail<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.tvHeading)
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 40)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 32) {
+                    content
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 24)
+            }
+            // Focused posters scale past the scroll view's edge; don't cut off their rings.
+            .scrollClipDisabled()
+        }
+    }
+}
+
 /// Poster grid used by Movies and Series.
 struct PosterGrid<Item: Identifiable, Tile: View>: View {
     let items: [Item]
