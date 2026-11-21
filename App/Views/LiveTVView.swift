@@ -115,6 +115,12 @@ struct LiveTVView: View {
     @State private var nowPlaying: PlayableItem?
     @State private var showingCategories = false
     @State private var focusTask: Task<Void, Never>?
+    @State private var playTask: Task<Void, Never>?
+    /// Channel whose preview is playing, once focus has rested on it.
+    @State private var previewStreamID: Int?
+    /// Channels whose preview failed this visit. They keep the still.
+    @State private var failedPreviews: Set<Int> = []
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedStream: Int?
 
     private var streams: [LiveStream] {
@@ -148,6 +154,49 @@ struct LiveTVView: View {
         !app.favorites.channels.isEmpty
     }
 
+    // MARK: Preview
+
+    /// The preview holds a connection, so it only runs while it can be seen:
+    /// not behind the player, not in the background.
+    private var previewAllowed: Bool {
+        app.previewMode != .off && app.previewSupported && nowPlaying == nil && scenePhase == .active
+    }
+
+    private struct PreviewKey: Hashable {
+        let streamID: Int?
+        let allowed: Bool
+    }
+
+    /// Only a channel that has actually held focus, never just the first in the list.
+    private var previewKey: PreviewKey {
+        PreviewKey(streamID: model.detailStreamID, allowed: previewAllowed)
+    }
+
+    private var previewURL: URL? {
+        guard previewAllowed, let id = previewStreamID, id == detailStream?.id else { return nil }
+        return model.client.liveURL(streamID: id, format: .hls)
+    }
+
+    /// Restarted by `.task(id:)` whenever the channel or `previewAllowed`
+    /// changes, which cancels the previous run. Stops the old preview at
+    /// once, starts the new one after a pause, and gives up the connection
+    /// if the same channel sits there for a few minutes.
+    private func runPreview() async {
+        previewStreamID = nil
+        guard previewAllowed, let id = model.detailStreamID, !failedPreviews.contains(id) else { return }
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { return }
+        previewStreamID = id
+        try? await Task.sleep(for: .seconds(180))
+        guard !Task.isCancelled else { return }
+        previewStreamID = nil
+    }
+
+    private func previewFailed(_ streamID: Int) {
+        failedPreviews.insert(streamID)
+        if previewStreamID == streamID { previewStreamID = nil }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             categoryBar
@@ -158,11 +207,18 @@ struct LiveTVView: View {
                     .frame(width: 760)
                     .focusSection()
 
-                ChannelDetailPane(stream: detailStream, epg: epg)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                ChannelDetailPane(
+                    stream: detailStream,
+                    epg: epg,
+                    previewURL: previewURL,
+                    previewMuted: app.previewMode != .sound,
+                    onPreviewFailure: { id in previewFailed(id) }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .task { await model.loadCategories(startWithFavorites: startWithFavorites) }
+        .task(id: previewKey) { await runPreview() }
         .onChange(of: focusedStream) { _, newValue in
             focusChanged(to: newValue)
         }
@@ -281,13 +337,25 @@ struct LiveTVView: View {
 
     private func play(_ stream: LiveStream) {
         let current = epg.schedule(for: stream.id)?.current(at: Date())
-        nowPlaying = PlayableItem(
+        let item = PlayableItem(
             id: "live-\(stream.id)",
             title: stream.name,
             subtitle: current?.title,
             url: model.client.liveURL(streamID: stream.id, format: app.liveFormat),
             isLive: true
         )
+        playTask?.cancel()
+        guard previewStreamID != nil, !app.hasSpareConnection else {
+            nowPlaying = item
+            return
+        }
+        // One connection and a preview holding it: let go first, then open the player.
+        previewStreamID = nil
+        playTask = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            nowPlaying = item
+        }
     }
 }
 
@@ -350,10 +418,13 @@ private struct LiveChannelRow: View {
     }
 }
 
-/// Right-hand side: a still for the focused channel and the next few hours.
+/// Right-hand side: a still or live preview of the focused channel, and the next few hours.
 private struct ChannelDetailPane: View {
     let stream: LiveStream?
     let epg: EPGStore
+    let previewURL: URL?
+    let previewMuted: Bool
+    let onPreviewFailure: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -361,8 +432,14 @@ private struct ChannelDetailPane: View {
                 let now = epg.now
                 let schedule = epg.schedule(for: stream.id)
 
-                ChannelStill(stream: stream, current: schedule?.current(at: now))
-                    .frame(maxHeight: 440)
+                ChannelStill(
+                    stream: stream,
+                    current: schedule?.current(at: now),
+                    previewURL: previewURL,
+                    previewMuted: previewMuted,
+                    onPreviewFailure: { onPreviewFailure(stream.id) }
+                )
+                .frame(maxHeight: 440)
 
                 HStack(spacing: 16) {
                     if let number = stream.number {
@@ -416,14 +493,28 @@ private struct ChannelDetailPane: View {
 }
 
 /// Logo card standing in for the picture, with what's on along the bottom.
+/// When a preview URL is set, the live picture plays over the logo.
 private struct ChannelStill: View {
     let stream: LiveStream
     let current: EPGEntry?
+    let previewURL: URL?
+    let previewMuted: Bool
+    let onPreviewFailure: () -> Void
 
     var body: some View {
         ZStack {
             Theme.surface
             ChannelLogo(url: stream.iconURL, size: CGSize(width: 320, height: 200))
+            if let previewURL {
+                LivePreviewView(
+                    url: previewURL,
+                    userAgent: AppModel.userAgent,
+                    muted: previewMuted,
+                    onFailure: onPreviewFailure
+                )
+                // One player per channel: a new URL tears the old one down.
+                .id(previewURL)
+            }
         }
         .aspectRatio(16.0 / 9.0, contentMode: .fit)
         .overlay(alignment: .topLeading) {

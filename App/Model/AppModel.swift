@@ -20,6 +20,11 @@ final class AppModel {
         didSet { UserDefaults.standard.set(engine.rawValue, forKey: Self.engineKey) }
     }
 
+    /// What the user picked in Settings, or nil if they haven't.
+    var previewChoice: LivePreviewMode? {
+        didSet { UserDefaults.standard.set(previewChoice?.rawValue, forKey: Self.previewKey) }
+    }
+
     let favorites = FavoritesStore()
     let watchHistory = WatchHistoryStore()
 
@@ -29,6 +34,7 @@ final class AppModel {
     }()
 
     private static let engineKey = "playerEngine"
+    private static let previewKey = "livePreview"
 
     init() {
         let stored = UserDefaults.standard.string(forKey: Self.engineKey).flatMap(PlayerEngineKind.init(rawValue:))
@@ -37,6 +43,28 @@ final class AppModel {
         } else {
             engine = .defaultEngine
         }
+        previewChoice = UserDefaults.standard.string(forKey: Self.previewKey).flatMap(LivePreviewMode.init(rawValue:))
+    }
+
+    /// Whether Live TV plays the focused channel in its detail pane.
+    ///
+    /// A preview holds a connection, and panels can take a few seconds to
+    /// release one after it stops. So it only defaults on when the account
+    /// clearly has a connection to spare.
+    var previewMode: LivePreviewMode {
+        if let previewChoice { return previewChoice }
+        return hasSpareConnection ? .muted : .off
+    }
+
+    /// False when the panel allows one connection or doesn't say.
+    var hasSpareConnection: Bool {
+        (authInfo?.user.maxConnections ?? 1) >= 2
+    }
+
+    /// The preview is always AVPlayer, which needs HLS.
+    var previewSupported: Bool {
+        let formats = authInfo?.user.allowedOutputFormats ?? []
+        return formats.isEmpty || formats.contains("m3u8")
     }
 
     /// Container to request for live channels with the current engine.

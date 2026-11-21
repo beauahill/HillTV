@@ -60,6 +60,27 @@ struct SettingsView: View {
                     InfoRow(label: "Live format", value: app.liveFormat == .hls ? "HLS (.m3u8)" : "MPEG-TS (.ts)")
                 }
 
+                SettingsCard(title: "Live TV preview") {
+                    ForEach(LivePreviewMode.allCases) { mode in
+                        Button {
+                            app.previewChoice = mode
+                        } label: {
+                            HStack {
+                                Text(mode.displayName)
+                                Spacer()
+                                if app.previewMode == mode {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        .buttonStyle(TVRowButtonStyle(isSelected: app.previewMode == mode, font: .tvMeta))
+                    }
+                    Text(previewNote)
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                }
+
                 SettingsCard(title: "About") {
                     InfoRow(label: "Version", value: AppModel.userAgent)
                     InfoRow(label: "KSPlayer", value: KSPlayerSupport.isLinked ? "Included" : "Not in this build")
@@ -74,6 +95,19 @@ struct SettingsView: View {
             .padding(.vertical, 24)
             .frame(maxWidth: 1200, alignment: .leading)
         }
+    }
+}
+
+extension SettingsView {
+    fileprivate var previewNote: String {
+        if !app.previewSupported {
+            return "This provider doesn't offer HLS, so the preview can't play. Live TV shows a still instead."
+        }
+        var note = "Plays the focused channel in Live TV after a short pause. It uses one connection while it plays."
+        if app.previewChoice == nil, !app.hasSpareConnection {
+            note += " Off for now because this account allows one connection."
+        }
+        return note
     }
 }
 
