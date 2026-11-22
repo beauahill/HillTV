@@ -86,10 +86,16 @@ enum AppSection: String, CaseIterable, Identifiable {
 
 /// Icon rail on the left, the selected section on the right. Section models
 /// live here so switching sections keeps each one's categories and caches.
+///
+/// Search is the exception: it opens as a full-screen page over the shell.
+/// The system search keyboard is built for the full width of the screen and
+/// doesn't fit beside the rail, where its last letters ran off the edge.
 struct MainShell: View {
     let client: XtreamClient
 
+    @Environment(AppModel.self) private var app
     @State private var section: AppSection = .home
+    @State private var showingSearch = false
     @State private var home: HomeModel
     @State private var search: SearchModel
     @State private var live: LiveTVModel
@@ -115,13 +121,13 @@ struct MainShell: View {
     var body: some View {
         HStack(spacing: 0) {
             // Read here, where the focus state lives, so the rail redraws when focus enters or leaves it.
-            Sidebar(selection: $section, focus: $sidebarFocus, expanded: sidebarFocus != nil)
+            Sidebar(selection: railSelection, focus: $sidebarFocus, expanded: sidebarFocus != nil)
                 .frame(width: Theme.railWidth, alignment: .leading)
                 .focusSection()
                 // The expanded rail draws over the content without moving it.
                 .zIndex(1)
 
-            content
+            visibleContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(.leading, 24)
                 // Scroll views draw past their edges so focus rings aren't cut off.
@@ -138,6 +144,44 @@ struct MainShell: View {
         }
         // Keeps "on now" progress moving while the shell is on screen.
         .task { await epg.runClock() }
+        .fullScreenCover(isPresented: $showingSearch) {
+            ZStack {
+                Theme.background.ignoresSafeArea()
+                SearchView(model: search)
+            }
+            .foregroundStyle(Theme.text)
+            .tint(Theme.accent)
+            .preferredColorScheme(.dark)
+            // Passed explicitly rather than relying on the environment reaching into a cover.
+            .environment(app)
+        }
+    }
+
+    /// Picking Search in the rail opens the search page and leaves the
+    /// current section selected, so Menu returns to where the user was.
+    private var railSelection: Binding<AppSection> {
+        Binding(
+            get: { section },
+            set: { item in
+                if item == .search {
+                    showingSearch = true
+                } else {
+                    section = item
+                }
+            }
+        )
+    }
+
+    /// The section is taken down while Search covers it, so nothing behind
+    /// the cover keeps working: no live preview holding a connection, no
+    /// scores polling. Its model keeps the state for when it comes back.
+    @ViewBuilder
+    private var visibleContent: some View {
+        if showingSearch {
+            Color.clear
+        } else {
+            content
+        }
     }
 
     private var exitAction: (() -> Void)? {
@@ -148,10 +192,10 @@ struct MainShell: View {
     private var contentAtRoot: Bool {
         switch section {
         case .home: return home.path.isEmpty
-        case .search: return search.path.isEmpty
         case .movies: return movies.path.isEmpty
         case .series: return series.path.isEmpty
-        case .live, .guide, .favorites, .settings: return true
+        // Search is never the shell's section; it has its own page.
+        case .live, .guide, .favorites, .settings, .search: return true
         }
     }
 
@@ -159,12 +203,10 @@ struct MainShell: View {
     private var content: some View {
         switch section {
         case .home:
-            HomeView(model: home, epg: epg) { section = .search }
+            HomeView(model: home, epg: epg) { showingSearch = true }
         case .search:
-            SearchView(model: search)
-                // The system search keyboard draws a little past its leading
-                // edge, where the rail and the content mask cut it off.
-                .padding(.leading, 56)
+            // Never selected: see `railSelection`.
+            EmptyView()
         case .live:
             LiveTVView(model: live, epg: epg, scores: scores)
         case .guide:

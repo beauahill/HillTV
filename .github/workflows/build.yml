@@ -107,6 +107,12 @@ jobs:
           fi
           echo "Icon and Top Shelf entries in Info.plist:"
           plutil -p "$APP/Info.plist" | grep -i -E -A6 'icon|topshelf' || echo "(none found)"
+          # The icon should be a stack of layers, not one flat image, or it
+          # won't shift when it has focus on the home screen.
+          echo "Icon and Top Shelf assets in Assets.car:"
+          xcrun assetutil --info "$APP/Assets.car" \
+            | grep -E '"(AssetType|Name|RenditionName|Scale|PixelWidth|PixelHeight)"' \
+            | paste -d' ' - - - - - - | sort | uniq -c || echo "(assetutil failed)"
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Info.plist")
           NAME="HillTV-${VERSION}-b${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:7}"
           if [ "$USE_KSPLAYER" = "true" ]; then NAME="${NAME}-ks"; fi
