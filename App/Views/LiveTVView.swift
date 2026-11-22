@@ -1,129 +1,10 @@
 import HillTVCore
-import Observation
 import SwiftUI
 
-@MainActor
-@Observable
-final class LiveTVModel {
-    /// Stands in for a category ID. The channels come from `FavoritesStore`.
-    static let favoritesID = "hilltv.favorites"
-
-    let client: XtreamClient
-
-    private(set) var categories: [XtreamCategory] = []
-    private(set) var categoryState: LoadState = .idle
-    private(set) var selectedCategoryID: String?
-    private(set) var streams: [LiveStream] = []
-    private(set) var streamState: LoadState = .idle
-    /// The channel the detail pane shows: the last one that held focus.
-    private(set) var detailStreamID: Int?
-
-    private var streamCache: [String: [LiveStream]] = [:]
-    private let visibility: CategoryVisibilityStore
-
-    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
-        self.client = client
-        self.visibility = visibility
-    }
-
-    /// Categories the user hasn't hidden.
-    var visibleCategories: [XtreamCategory] {
-        visibility.visible(categories, in: .live)
-    }
-
-    var showsFavorites: Bool {
-        selectedCategoryID == Self.favoritesID
-    }
-
-    func loadCategories(startWithFavorites: Bool) async {
-        if selectedCategoryID == nil, startWithFavorites {
-            await select(Self.favoritesID)
-        }
-        if !categories.isEmpty {
-            await reconcileSelection()
-            return
-        }
-        guard categoryState != .loading else { return }
-        categoryState = .loading
-        do {
-            categories = try await client.liveCategories()
-            categoryState = categories.isEmpty ? .empty : .loaded
-            await reconcileSelection()
-        } catch {
-            // Leaving the section cancels the request; retry next time instead of showing an error.
-            categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
-        }
-    }
-
-    /// Keeps the selection on a category that is still shown, since categories
-    /// can be hidden in Settings between visits. Also refetches after a
-    /// cancelled first load. Favorites is always a valid selection.
-    private func reconcileSelection() async {
-        if showsFavorites { return }
-        let visible = visibleCategories
-        if let id = selectedCategoryID, visible.contains(where: { $0.id == id }) {
-            if streamState == .idle { await select(id) }
-        } else if let first = visible.first {
-            await select(first.id)
-        } else {
-            await select(Self.favoritesID)
-        }
-    }
-
-    func retryCategories(startWithFavorites: Bool) {
-        categoryState = .idle
-        Task { await loadCategories(startWithFavorites: startWithFavorites) }
-    }
-
-    /// Categories change on click, not on focus: stepping across a long row
-    /// of chips shouldn't reload the channel list at every stop.
-    func select(_ categoryID: String) async {
-        if categoryID == Self.favoritesID {
-            guard !showsFavorites else { return }
-            selectedCategoryID = categoryID
-            detailStreamID = nil
-            streams = []
-            streamState = .loaded
-            return
-        }
-        if categoryID == selectedCategoryID, streamState == .loaded || streamState == .loading { return }
-        selectedCategoryID = categoryID
-        detailStreamID = nil
-
-        if let cached = streamCache[categoryID] {
-            streams = cached
-            streamState = cached.isEmpty ? .empty : .loaded
-            return
-        }
-
-        streams = []
-        streamState = .loading
-        do {
-            let result = try await client.liveStreams(categoryID: categoryID)
-            streamCache[categoryID] = result
-            // Ignore late results if the user already moved to another category.
-            guard selectedCategoryID == categoryID else { return }
-            streams = result
-            streamState = result.isEmpty ? .empty : .loaded
-        } catch {
-            guard selectedCategoryID == categoryID else { return }
-            streamState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
-        }
-    }
-
-    func retryStreams() {
-        guard let id = selectedCategoryID else { return }
-        streamState = .idle
-        Task { await select(id) }
-    }
-
-    func showDetail(for streamID: Int) {
-        detailStreamID = streamID
-    }
-}
-
-/// Live TV: category chips across the top, the channel list on the left with
-/// what's on now in every row, and details for the focused channel on the right.
+/// Live TV: big pills for Favorites and the category groups, the selected
+/// group's own categories as a smaller row, the channel list on the left
+/// with what's on now in every row, and details for the focused channel on
+/// the right. The model is in `App/Model/LiveTVModel.swift`.
 struct LiveTVView: View {
     @Environment(AppModel.self) private var app
     let model: LiveTVModel
@@ -155,7 +36,9 @@ struct LiveTVView: View {
     }
 
     private var emptyText: String {
-        if model.showsFavorites { return "No favorites yet. Hold Select on a channel to add it." }
+        if model.showsFavorites {
+            return model.allHidden ? allCategoriesHiddenText : "No favorites yet. Hold Select on a channel to add it."
+        }
         return model.categories.isEmpty ? "No live categories" : "No channels in this category"
     }
 
@@ -216,9 +99,14 @@ struct LiveTVView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            categoryBar
+        VStack(alignment: .leading, spacing: 8) {
+            pillBar
                 .focusSection()
+
+            if !model.subcategories.isEmpty {
+                categoryBar
+                    .focusSection()
+            }
 
             HStack(alignment: .top, spacing: 32) {
                 channelList
@@ -243,55 +131,105 @@ struct LiveTVView: View {
         .playerCover(item: $nowPlaying)
     }
 
-    // MARK: Categories
+    // MARK: Pills and categories
 
+    private var pills: [LiveTVModel.Pill] {
+        [.favorites] + model.groups.map { .group($0.group) }
+    }
+
+    private var pillBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                ForEach(pills, id: \.self) { pill in
+                    Button {
+                        Task { await model.select(pill) }
+                    } label: {
+                        Label(Self.title(pill), systemImage: Self.symbol(pill))
+                    }
+                    .buttonStyle(TVPillButtonStyle(isSelected: model.selection?.pill == pill))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 14)
+        }
+        // Focused pills scale past the scroll view's edge; don't cut them off.
+        .scrollClipDisabled()
+    }
+
+    private static func title(_ pill: LiveTVModel.Pill) -> String {
+        switch pill {
+        case .favorites: return "Favorites"
+        case .group(let group): return group.title
+        }
+    }
+
+    private static func symbol(_ pill: LiveTVModel.Pill) -> String {
+        switch pill {
+        case .favorites: return "heart.fill"
+        case .group(.sports): return "sportscourt"
+        case .group(.news): return "newspaper"
+        case .group(.movies): return "film"
+        case .group(.shows): return "tv"
+        case .group(.kids): return "face.smiling"
+        case .group(.music): return "music.note"
+        case .group(.world): return "globe"
+        case .group(.other): return "square.grid.2x2"
+        }
+    }
+
+    /// The selected group's own categories, with "All" first when the group
+    /// is small enough to merge and a grid button when it is long.
     private var categoryBar: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
-                    Button {
-                        showingCategories = true
-                    } label: {
-                        Label("All", systemImage: "square.grid.2x2")
+                    if model.subcategories.count > 8 {
+                        Button {
+                            showingCategories = true
+                        } label: {
+                            Image(systemName: "square.grid.2x2")
+                        }
+                        .buttonStyle(TVChipButtonStyle())
                     }
-                    .buttonStyle(TVChipButtonStyle())
 
-                    chip("Favorites", id: LiveTVModel.favoritesID, systemImage: "heart.fill")
+                    if model.offersAll {
+                        chip("All", id: LiveTVModel.allID)
+                    }
 
-                    ForEach(model.visibleCategories) { category in
+                    ForEach(model.subcategories) { category in
                         chip(category.name, id: category.id)
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 12)
+                .padding(.vertical, 10)
             }
             // Focused chips scale past the scroll view's edge; don't cut them off.
             .scrollClipDisabled()
-            .frame(height: 80)
-            .onChange(of: model.selectedCategoryID) { _, newValue in
-                // A pick from the full list may be far along the row.
-                guard let newValue else { return }
-                withAnimation { proxy.scrollTo(newValue, anchor: .center) }
+            .frame(height: 76)
+            .onChange(of: model.selection) { _, newValue in
+                // A pick from the grid may be far along the row.
+                guard let sub = newValue?.sub else { return }
+                withAnimation { proxy.scrollTo(sub, anchor: .center) }
             }
         }
         .fullScreenCover(isPresented: $showingCategories) {
-            CategoryPicker(categories: model.visibleCategories, selectedID: model.selectedCategoryID) { id in
-                Task { await model.select(id) }
+            CategoryPicker(
+                title: model.selection.map { Self.title($0.pill) } ?? "Live TV",
+                categories: model.subcategories,
+                selectedID: model.selection?.sub
+            ) { id in
+                Task { await model.select(sub: id) }
             }
         }
     }
 
-    private func chip(_ title: String, id: String, systemImage: String? = nil) -> some View {
+    private func chip(_ title: String, id: String) -> some View {
         Button {
-            Task { await model.select(id) }
+            Task { await model.select(sub: id) }
         } label: {
-            if let systemImage {
-                Label(title, systemImage: systemImage)
-            } else {
-                Text(title)
-            }
+            Text(title)
         }
-        .buttonStyle(TVChipButtonStyle(isSelected: model.selectedCategoryID == id))
+        .buttonStyle(TVChipButtonStyle(isSelected: model.selection?.sub == id))
         .id(id)
     }
 
@@ -610,8 +548,9 @@ private struct TimelineRow: View {
     }
 }
 
-/// Every live category in a grid, for providers with far more than fit in the chip row.
+/// One group's categories in a grid, for groups with far more than fit in the chip row.
 private struct CategoryPicker: View {
+    let title: String
     let categories: [XtreamCategory]
     let selectedID: String?
     let onPick: (String) -> Void
@@ -627,7 +566,7 @@ private struct CategoryPicker: View {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
                     Eyebrow(text: "Live TV")
-                    Text("All categories")
+                    Text(title)
                         .font(.tvTitle)
                         .foregroundStyle(Theme.text)
                 }
@@ -635,20 +574,10 @@ private struct CategoryPicker: View {
 
                 ScrollView(.vertical) {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                        Button {
-                            pick(LiveTVModel.favoritesID)
-                        } label: {
-                            Label("Favorites", systemImage: "heart.fill")
-                        }
-                        .buttonStyle(TVRowButtonStyle(
-                            isSelected: selectedID == LiveTVModel.favoritesID,
-                            minHeight: 64,
-                            font: .tvMeta
-                        ))
-
                         ForEach(categories) { category in
                             Button {
-                                pick(category.id)
+                                onPick(category.id)
+                                dismiss()
                             } label: {
                                 Text(category.name)
                                     .lineLimit(1)
@@ -661,10 +590,5 @@ private struct CategoryPicker: View {
             }
         }
         .preferredColorScheme(.dark)
-    }
-
-    private func pick(_ id: String) {
-        onPick(id)
-        dismiss()
     }
 }

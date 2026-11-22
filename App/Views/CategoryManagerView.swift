@@ -12,7 +12,7 @@ struct CategoryManagerView: View {
     @State private var categories: [CatalogKind: [XtreamCategory]] = [:]
     @State private var states: [CatalogKind: LoadState] = [:]
 
-    private struct Section: Identifiable {
+    private struct CategoryBlock: Identifiable {
         let id: String
         let title: String
         let categories: [XtreamCategory]
@@ -24,14 +24,14 @@ struct CategoryManagerView: View {
         categories[kind] ?? []
     }
 
-    private var sections: [Section] {
+    private var sections: [CategoryBlock] {
         switch kind {
         case .live:
             return CategoryGroup.grouping(current).map {
-                Section(id: $0.group.id, title: $0.group.title, categories: $0.categories)
+                CategoryBlock(id: $0.group.id, title: $0.group.title, categories: $0.categories)
             }
         case .movies, .series:
-            return current.isEmpty ? [] : [Section(id: kind.id, title: Self.title(kind), categories: current)]
+            return current.isEmpty ? [] : [CategoryBlock(id: kind.id, title: Self.title(kind), categories: current)]
         }
     }
 
@@ -103,7 +103,7 @@ struct CategoryManagerView: View {
         .padding(.vertical, 8)
     }
 
-    private func sectionView(_ section: Section) -> some View {
+    private func sectionView(_ section: CategoryBlock) -> some View {
         let ids = section.categories.map(\.id)
         let hiddenHere = ids.filter { store.isHidden($0, in: kind) }.count
         let allHidden = hiddenHere == ids.count
@@ -133,8 +133,8 @@ struct CategoryManagerView: View {
                             Image(systemName: hidden ? "eye.slash" : "eye")
                                 .frame(width: 34)
                             Text(category.name)
-                                .lineLimit(1)
                                 .strikethrough(hidden)
+                                .lineLimit(1)
                             Spacer(minLength: 0)
                         }
                         .opacity(hidden ? 0.55 : 1)

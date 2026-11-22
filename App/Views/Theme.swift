@@ -186,6 +186,45 @@ struct TVActionButtonStyle: ButtonStyle {
     }
 }
 
+/// Large capsule for the top-level choices on a screen, such as the Live TV
+/// groups. Focus: blue fill with dark text. Selected: blue tint with blue text.
+struct TVPillButtonStyle: ButtonStyle {
+    var isSelected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        PillBody(configuration: configuration, isSelected: isSelected)
+    }
+
+    private struct PillBody: View {
+        let configuration: ButtonStyleConfiguration
+        let isSelected: Bool
+        @Environment(\.isFocused) private var isFocused
+
+        private var fill: Color {
+            if isFocused { return Theme.accent }
+            return isSelected ? Theme.accent.opacity(0.2) : Theme.control
+        }
+
+        private var foreground: Color {
+            if isFocused { return Theme.onAccent }
+            return isSelected ? Theme.accent : Theme.text
+        }
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(foreground)
+                .lineLimit(1)
+                .padding(.horizontal, 38)
+                .frame(minHeight: 92)
+                .background(fill, in: Capsule())
+                .scaleEffect(isFocused ? 1.05 : 1)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .animation(Theme.focusAnimation, value: isFocused)
+        }
+    }
+}
+
 /// Compact capsule for filters, such as Live TV categories.
 /// Focus: blue fill with dark text. Selected: blue tint with blue text.
 struct TVChipButtonStyle: ButtonStyle {
