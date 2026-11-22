@@ -14,12 +14,15 @@ final class LiveTVModel {
 
     struct Selection: Hashable {
         var pill: Pill
-        /// A provider category ID, or `allID`. Nil for Favorites.
+        /// A provider category ID, `allID` or `gamesID`. Nil for Favorites.
         var sub: String?
     }
 
     /// Sub-selection: every category in the group, merged into one list.
     static let allID = "hilltv.all"
+    /// Sub-selection in Sports: games from the scores feed, then every
+    /// sports channel.
+    static let gamesID = "hilltv.games"
     /// Groups with more categories than this don't offer "All": it would
     /// mean that many requests and a list too long to be useful.
     static let mergeLimit = 12
@@ -33,6 +36,10 @@ final class LiveTVModel {
     private(set) var streamState: LoadState = .idle
     /// The channel the detail pane shows: the last one that held focus.
     private(set) var detailStreamID: Int?
+
+    /// Channels across every Sports category, for matching games to
+    /// channels. Empty until Games has been opened.
+    private(set) var sportsChannels: [LiveStream] = []
 
     private var streamCache: [String: [LiveStream]] = [:]
     /// The sub-selection last used in each group, so coming back restores it.
@@ -70,9 +77,19 @@ final class LiveTVModel {
         return groups.first { $0.group == group }?.categories ?? []
     }
 
-    /// Whether the selected group offers the merged "All" list.
+    var showsGames: Bool {
+        selection?.sub == Self.gamesID
+    }
+
+    /// Whether the selected group offers "Games". Only Sports does.
+    var offersGames: Bool {
+        selection?.pill == .group(.sports)
+    }
+
+    /// Whether the selected group offers the merged "All" list. Sports
+    /// doesn't: its Games list already ends with every sports channel.
     var offersAll: Bool {
-        Self.offersAll(subcategories)
+        !offersGames && Self.offersAll(subcategories)
     }
 
     private static func offersAll(_ categories: [XtreamCategory]) -> Bool {
@@ -111,7 +128,8 @@ final class LiveTVModel {
         Task { await load() }
     }
 
-    func showDetail(for streamID: Int) {
+    /// Nil clears it, for when a game row has focus instead of a channel.
+    func showDetail(for streamID: Int?) {
         detailStreamID = streamID
     }
 
@@ -127,14 +145,14 @@ final class LiveTVModel {
         case .group(let group):
             let grouped = groups.first { $0.group == group }
             let categories = grouped?.categories ?? []
-            let remembered = lastSub[group].flatMap { validSubs(categories).contains($0) ? $0 : nil }
-            selection = Selection(pill: pill, sub: remembered ?? defaultSub(categories))
+            let remembered = lastSub[group].flatMap { validSubs(group, categories).contains($0) ? $0 : nil }
+            selection = Selection(pill: pill, sub: remembered ?? defaultSub(group, categories))
         }
         detailStreamID = nil
         await load()
     }
 
-    /// Picks a provider category or "All" inside the selected group.
+    /// Picks a provider category, "All" or "Games" inside the selected group.
     func select(sub: String) async {
         guard case .group(let group)? = selection?.pill else { return }
         if selection?.sub == sub, streamState == .loaded || streamState == .loading { return }
@@ -144,14 +162,19 @@ final class LiveTVModel {
         await load()
     }
 
-    private func validSubs(_ categories: [XtreamCategory]) -> [String] {
+    private func validSubs(_ group: CategoryGroup, _ categories: [XtreamCategory]) -> [String] {
         var subs = categories.map(\.id)
-        if Self.offersAll(categories) { subs.append(Self.allID) }
+        if group == .sports {
+            subs.append(Self.gamesID)
+        } else if Self.offersAll(categories) {
+            subs.append(Self.allID)
+        }
         return subs
     }
 
-    private func defaultSub(_ categories: [XtreamCategory]) -> String? {
-        Self.offersAll(categories) ? Self.allID : categories.first?.id
+    private func defaultSub(_ group: CategoryGroup, _ categories: [XtreamCategory]) -> String? {
+        if group == .sports { return Self.gamesID }
+        return Self.offersAll(categories) ? Self.allID : categories.first?.id
     }
 
     /// Keeps the selection on something that is still shown, since
@@ -171,12 +194,12 @@ final class LiveTVModel {
                 await selectFirst(in: groups)
                 return
             }
-            if let sub = selection.sub, validSubs(grouped.categories).contains(sub) {
-                // "All" depends on which categories are visible, so rebuild it.
-                if streamState == .idle || sub == Self.allID { await load() }
+            if let sub = selection.sub, validSubs(group, grouped.categories).contains(sub) {
+                // "All" and "Games" depend on which categories are visible, so rebuild them.
+                if streamState == .idle || sub == Self.allID || sub == Self.gamesID { await load() }
             } else {
                 lastSub[group] = nil
-                self.selection = Selection(pill: selection.pill, sub: defaultSub(grouped.categories))
+                self.selection = Selection(pill: selection.pill, sub: defaultSub(group, grouped.categories))
                 detailStreamID = nil
                 await load()
             }
@@ -208,15 +231,17 @@ final class LiveTVModel {
             return
         }
 
-        if sub == Self.allID {
+        if sub == Self.allID || sub == Self.gamesID {
             let missing = grouped.filter { streamCache[$0.id] == nil }
             if !missing.isEmpty {
                 streams = []
-                streamState = .loading
+                // Games come from the scores feed and can show while the channels load.
+                streamState = sub == Self.gamesID ? .loaded : .loading
                 await fetch(missing)
                 guard selection == token else { return }
             }
             let merged = Self.merge(grouped.compactMap { streamCache[$0.id] })
+            if sub == Self.gamesID { sportsChannels = merged }
             if merged.isEmpty, grouped.contains(where: { streamCache[$0.id] == nil }) {
                 streams = []
                 streamState = Task.isCancelled ? .idle : .failed("Couldn't load these channels.")

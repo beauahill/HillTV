@@ -97,6 +97,7 @@ struct MainShell: View {
     @State private var movies: MoviesModel
     @State private var series: SeriesModel
     @State private var epg: EPGStore
+    @State private var scores: ScoreboardStore
     @FocusState private var sidebarFocus: AppSection?
 
     init(client: XtreamClient, visibility: CategoryVisibilityStore) {
@@ -108,6 +109,7 @@ struct MainShell: View {
         _movies = State(initialValue: MoviesModel(client: client, visibility: visibility))
         _series = State(initialValue: SeriesModel(client: client, visibility: visibility))
         _epg = State(initialValue: EPGStore(client: client))
+        _scores = State(initialValue: ScoreboardStore(userAgent: AppModel.userAgent))
     }
 
     var body: some View {
@@ -164,7 +166,7 @@ struct MainShell: View {
                 // edge, where the rail and the content mask cut it off.
                 .padding(.leading, 56)
         case .live:
-            LiveTVView(model: live, epg: epg)
+            LiveTVView(model: live, epg: epg, scores: scores)
         case .guide:
             GuideView(model: guide)
         case .favorites:

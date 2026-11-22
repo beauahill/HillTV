@@ -5,10 +5,20 @@ import SwiftUI
 /// group's own categories as a smaller row, the channel list on the left
 /// with what's on now in every row, and details for the focused channel on
 /// the right. The model is in `App/Model/LiveTVModel.swift`.
+///
+/// In Sports, "Games" lists games from the scores feed above the sports
+/// channels. A focused game puts a scoreboard in the detail pane.
 struct LiveTVView: View {
     @Environment(AppModel.self) private var app
     let model: LiveTVModel
     let epg: EPGStore
+    let scores: ScoreboardStore
+
+    /// What has focus in the list: a channel row or a game row.
+    private enum ListFocus: Hashable {
+        case stream(Int)
+        case game(String)
+    }
 
     @State private var nowPlaying: PlayableItem?
     @State private var showingCategories = false
@@ -18,8 +28,14 @@ struct LiveTVView: View {
     @State private var previewStreamID: Int?
     /// Channels whose preview failed this visit. They keep the still.
     @State private var failedPreviews: Set<Int> = []
+    /// The game the detail pane shows: the last game row that held focus.
+    @State private var detailGameID: String?
+    /// Set to ask which channel to watch a game on.
+    @State private var picking: GamePick?
+    /// The channel chosen in that list, played once the list has closed.
+    @State private var pendingStream: LiveStream?
     @Environment(\.scenePhase) private var scenePhase
-    @FocusState private var focusedStream: Int?
+    @FocusState private var focus: ListFocus?
 
     private var streams: [LiveStream] {
         model.showsFavorites ? app.favorites.channels : model.streams
@@ -31,6 +47,11 @@ struct LiveTVView: View {
         }
         if model.categories.isEmpty {
             return model.categoryState
+        }
+        // Games come from the scores feed. A slow or failed channel fetch
+        // shouldn't cover them with a spinner or an error.
+        if model.showsGames {
+            return .loaded
         }
         return model.streamState
     }
@@ -54,13 +75,63 @@ struct LiveTVView: View {
         !app.favorites.channels.isEmpty
     }
 
+    // MARK: Games
+
+    /// Live games, then ones starting soon, then ones just finished.
+    private var games: [SportsGame] {
+        model.showsGames ? Scoreboard.sections(scores.games, now: epg.now).all : []
+    }
+
+    private var detailGame: SportsGame? {
+        guard model.showsGames else { return nil }
+        let all = games
+        if let id = detailGameID, let match = all.first(where: { $0.id == id }) {
+            return match
+        }
+        // Nothing has had focus yet: lead with the first game, not a channel.
+        return model.detailStreamID == nil ? all.first : nil
+    }
+
+    /// The scores feed is only polled while games can be seen.
+    private var gamesActive: Bool {
+        model.showsGames && nowPlaying == nil && picking == nil && scenePhase == .active
+    }
+
+    /// Restarted by `.task(id:)` when `gamesActive` changes, which cancels the previous run.
+    private func pollScores() async {
+        guard gamesActive else { return }
+        while !Task.isCancelled {
+            await scores.refresh()
+            await scores.rematch(games, channels: model.sportsChannels, schedules: epg.schedules)
+            try? await Task.sleep(for: .seconds(60))
+        }
+    }
+
+    /// Tunes straight in only when exactly one channel names both teams.
+    /// Anything less sure asks first.
+    private func open(_ game: SportsGame) {
+        let matches = scores.matches[game.id] ?? []
+        let sure = matches.filter { $0.strength == .teams }
+        if sure.count == 1, let only = sure.first {
+            play(only.stream)
+        } else if !matches.isEmpty {
+            picking = GamePick(game: game, matches: Array(matches.prefix(24)))
+        }
+    }
+
+    private func playPending() {
+        guard let stream = pendingStream else { return }
+        pendingStream = nil
+        play(stream)
+    }
+
     // MARK: Preview
 
     /// The preview holds a connection, so it only runs while it can be seen:
-    /// not behind the player or the category grid, not in the background.
+    /// not behind the player or another full-screen list, not in the background.
     private var previewAllowed: Bool {
         app.previewMode != .off && app.previewSupported
-            && nowPlaying == nil && !showingCategories && scenePhase == .active
+            && nowPlaying == nil && !showingCategories && picking == nil && scenePhase == .active
     }
 
     private struct PreviewKey: Hashable {
@@ -113,20 +184,40 @@ struct LiveTVView: View {
                     .frame(width: 760)
                     .focusSection()
 
-                ChannelDetailPane(
-                    stream: detailStream,
-                    epg: epg,
-                    previewURL: previewURL,
-                    previewMuted: app.previewMode != .sound,
-                    onPreviewFailure: { id in previewFailed(id) }
-                )
+                Group {
+                    if let game = detailGame {
+                        GameDetailPane(game: game, matches: scores.matches[game.id] ?? [])
+                    } else {
+                        ChannelDetailPane(
+                            stream: detailStream,
+                            epg: epg,
+                            previewURL: previewURL,
+                            previewMuted: app.previewMode != .sound,
+                            onPreviewFailure: { id in previewFailed(id) }
+                        )
+                    }
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .task { await model.loadCategories(startWithFavorites: startWithFavorites) }
         .task(id: previewKey) { await runPreview() }
-        .onChange(of: focusedStream) { _, newValue in
+        .task(id: gamesActive) { await pollScores() }
+        .onChange(of: model.sportsChannels) { _, channels in
+            // The sports channels arrive after the first scores: match again.
+            let current = games
+            let schedules = epg.schedules
+            Task { await scores.rematch(current, channels: channels, schedules: schedules) }
+        }
+        .onChange(of: focus) { _, newValue in
             focusChanged(to: newValue)
+        }
+        .fullScreenCover(item: $picking, onDismiss: { playPending() }) { pick in
+            GameChannelPicker(pick: pick) { stream in
+                // Play after this list has closed; two covers can't swap in one step.
+                pendingStream = stream
+                picking = nil
+            }
         }
         .playerCover(item: $nowPlaying)
     }
@@ -192,6 +283,10 @@ struct LiveTVView: View {
                         .buttonStyle(TVChipButtonStyle())
                     }
 
+                    if model.offersGames {
+                        chip("Games", id: LiveTVModel.gamesID)
+                    }
+
                     if model.offersAll {
                         chip("All", id: LiveTVModel.allID)
                     }
@@ -238,6 +333,10 @@ struct LiveTVView: View {
     private var channelList: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 4) {
+                if model.showsGames {
+                    gameRows
+                }
+
                 ForEach(streams) { stream in
                     Button {
                         play(stream)
@@ -249,7 +348,7 @@ struct LiveTVView: View {
                         )
                     }
                     .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
-                    .focused($focusedStream, equals: stream.id)
+                    .focused($focus, equals: .stream(stream.id))
                     .contextMenu {
                         Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
                             app.favorites.toggle(stream)
@@ -268,6 +367,41 @@ struct LiveTVView: View {
         }
     }
 
+    /// Games from the scores feed, then a heading for the channels below.
+    /// With no scores this is nothing at all, and Sports is plain channels.
+    @ViewBuilder
+    private var gameRows: some View {
+        let list = games
+        ForEach(list) { game in
+            Button {
+                open(game)
+            } label: {
+                GameRow(
+                    game: game,
+                    matches: scores.matches[game.id] ?? [],
+                    channelsLoaded: !model.sportsChannels.isEmpty
+                )
+            }
+            .buttonStyle(TVRowButtonStyle(minHeight: 128))
+            .focused($focus, equals: .game(game.id))
+        }
+
+        if scores.hasLoaded, list.isEmpty {
+            Text("No games on right now.")
+                .font(.tvSmall)
+                .foregroundStyle(Theme.muted)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+        }
+
+        if !streams.isEmpty {
+            Eyebrow(text: "Sports channels", color: Theme.muted)
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+        }
+    }
+
     private func retry() {
         if model.categories.isEmpty {
             model.retryCategories(startWithFavorites: startWithFavorites)
@@ -278,16 +412,24 @@ struct LiveTVView: View {
 
     /// Waits for focus to settle before updating the detail pane, so holding
     /// down on the remote doesn't redraw it for every row passed.
-    private func focusChanged(to streamID: Int?) {
+    private func focusChanged(to focus: ListFocus?) {
         focusTask?.cancel()
-        guard let streamID else { return }
+        guard let focus else { return }
         let model = model
         let epg = epg
         focusTask = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            model.showDetail(for: streamID)
-            epg.prioritize(streamID)
+            switch focus {
+            case .stream(let id):
+                detailGameID = nil
+                model.showDetail(for: id)
+                epg.prioritize(id)
+            case .game(let id):
+                // Clearing the channel also stops any preview.
+                detailGameID = id
+                model.showDetail(for: nil)
+            }
         }
     }
 
