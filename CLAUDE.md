@@ -110,13 +110,13 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 - Focus engine: everything interactive must be a `Button`, `NavigationLink` or have `.focusable()`. Test focus paths, not just looks.
 - Menu/Back button: confirm on device that it dismisses the full-screen player from both engines. If AVPlayerViewController swallows it, add `.onExitCommand` handling.
 - ATS is wide open (`NSAllowsArbitraryLoads`) because most panels are plain http. Fine for sideloading.
-- No app icon or Top Shelf image yet. tvOS needs a layered "App Icon & Top Shelf Image" brand asset in an asset catalog. Beau prefers PNG artwork with solid, bold shapes.
+- App icon and Top Shelf images live in `App/Assets.xcassets/App Icon & Top Shelf Image.brandassets` and are named by `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml`. The icon is "Sunrise" (Beau's pick of four): three layers, sky at the back, a white sun with a play triangle, two blue hills in front. Don't edit the PNGs by hand; change `Tools/make_icon.py` and run it (needs Pillow, plus google-chrome and a network connection for the Top Shelf wordmark, which uses Inter). CI fails if the built app has no `Assets.car` and prints the icon entries from Info.plist. Beau prefers PNG artwork with solid, bold shapes. Not yet seen on the TV: check the icon and Top Shelf banner show, and that no sky shows along the edges of the hills when the icon tilts in focus.
 
 ## Roadmap (rough priority)
 
 1. Get CI green with AVPlayer, install via atvloadly, smoke test on the TV.
 2. Turn on KSPlayer (`USE_KSPLAYER=true`), get it green, then pin a KSPlayer revision in `project-ksplayer.yml` instead of `branch: main`.
-3. App icon and Top Shelf brand assets.
+3. App icon and Top Shelf brand assets: done (Nov 2026), needs a look on the TV.
 4. Channel zapping inside the player (up/down for prev/next channel in the current category), plus "last channel" quick switch.
 5. Full XMLTV guide. The Guide grid exists but uses short EPG per channel; switch its data source to XMLTV for full-day listings. Download `client.xmltvURL` (often gzipped, 10-100 MB), stream-parse with `XMLParser` off the main thread, store in SQLite in Caches, map by `epg_channel_id`.
 6. Search: done (name matching). Later: search EPG titles once XMLTV is stored.

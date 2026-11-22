@@ -22,6 +22,7 @@ Packages/HillTVCore/      Xtream client, lenient JSON models, M3U parser, tests
 project.yml               XcodeGen spec, AVPlayer only
 project-ksplayer.yml      Same project plus KSPlayer
 .github/workflows/        CI: core tests on Linux, unsigned IPA on macOS
+Tools/make_icon.py        Regenerates the app icon and Top Shelf images
 CLAUDE.md                 Notes and roadmap for Claude Code
 ```
 
