@@ -20,6 +20,15 @@ final class AppModel {
         didSet { UserDefaults.standard.set(engine.rawValue, forKey: Self.engineKey) }
     }
 
+    /// Live buffer and live delay. The defaults leave the player as it always was.
+    var playback: PlaybackSettings {
+        didSet {
+            if let data = try? JSONEncoder().encode(playback) {
+                UserDefaults.standard.set(data, forKey: Self.playbackKey)
+            }
+        }
+    }
+
     /// What the user picked in Settings, or nil if they haven't.
     var previewChoice: LivePreviewMode? {
         didSet { UserDefaults.standard.set(previewChoice?.rawValue, forKey: Self.previewKey) }
@@ -36,6 +45,7 @@ final class AppModel {
 
     private static let engineKey = "playerEngine"
     private static let previewKey = "livePreview"
+    private static let playbackKey = "playbackSettings.v1"
 
     init() {
         let stored = UserDefaults.standard.string(forKey: Self.engineKey).flatMap(PlayerEngineKind.init(rawValue:))
@@ -44,6 +54,10 @@ final class AppModel {
         } else {
             engine = .defaultEngine
         }
+        // Before previewChoice: that one already has a value, so assigning it
+        // uses self, which needs every stored property set first.
+        playback = UserDefaults.standard.data(forKey: Self.playbackKey)
+            .flatMap { try? JSONDecoder().decode(PlaybackSettings.self, from: $0) } ?? PlaybackSettings()
         previewChoice = UserDefaults.standard.string(forKey: Self.previewKey).flatMap(LivePreviewMode.init(rawValue:))
     }
 

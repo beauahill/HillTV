@@ -61,6 +61,52 @@ struct SettingsView: View {
                     InfoRow(label: "Live format", value: app.liveFormat == .hls ? "HLS (.m3u8)" : "MPEG-TS (.ts)")
                 }
 
+                SettingsCard(title: "Live buffer") {
+                    ForEach(PlaybackSettings.LiveBuffer.allCases) { buffer in
+                        Button {
+                            app.playback.liveBuffer = buffer
+                        } label: {
+                            HStack {
+                                Text(Self.title(buffer))
+                                Spacer()
+                                if app.playback.liveBuffer == buffer {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        .buttonStyle(TVRowButtonStyle(isSelected: app.playback.liveBuffer == buffer, font: .tvMeta))
+                    }
+                    Text("How much of a live channel is loaded ahead of what you're watching. Smaller starts a little faster. Larger rides out a weak connection. Movies and episodes buffer automatically.")
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                }
+
+                SettingsCard(title: "Live delay") {
+                    ForEach(PlaybackSettings.LiveDelay.allCases) { delay in
+                        Button {
+                            app.playback.liveDelay = delay
+                        } label: {
+                            HStack {
+                                Text(Self.title(delay))
+                                Spacer()
+                                if app.playback.liveDelay == delay {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        .buttonStyle(TVRowButtonStyle(isSelected: app.playback.liveDelay == delay, font: .tvMeta))
+                    }
+                    Text(Self.detail(app.playback.liveDelay))
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                    Text("Most of the delay comes from how your provider packages the stream, which the app can't change. These settings need the Apple player and take effect the next time you start a channel.")
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                }
+
                 SettingsCard(title: "Categories") {
                     Button {
                         showingCategories = true
@@ -122,6 +168,35 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    fileprivate static func title(_ buffer: PlaybackSettings.LiveBuffer) -> String {
+        switch buffer {
+        case .oneSecond: return "1 second"
+        case .twoSeconds: return "2 seconds"
+        case .standard: return "4 seconds (default)"
+        case .tenSeconds: return "10 seconds"
+        case .thirtySeconds: return "30 seconds"
+        }
+    }
+
+    fileprivate static func title(_ delay: PlaybackSettings.LiveDelay) -> String {
+        switch delay {
+        case .standard: return "Standard (default)"
+        case .keepUp: return "Keep up"
+        case .closest: return "Closest to live"
+        }
+    }
+
+    fileprivate static func detail(_ delay: PlaybackSettings.LiveDelay) -> String {
+        switch delay {
+        case .standard:
+            return "The player decides how far behind the broadcast to play. Each time the stream pauses to load, it falls a little further behind."
+        case .keepUp:
+            return "After the stream pauses to load, the player skips ahead to where it would have been, so the delay doesn't grow over time."
+        case .closest:
+            return "Keeps up, and also plays at about half the usual distance behind the broadcast. Expect more pauses on a weak connection. The live buffer can't be larger than that distance."
+        }
+    }
+
     fileprivate var hiddenSummary: String {
         let store = app.categoryVisibility
         let counts = CatalogKind.allCases.map { store.hiddenCount(in: $0) }
