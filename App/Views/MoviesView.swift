@@ -17,17 +17,25 @@ final class MoviesModel {
 
     private var cache: [String: [VODStream]] = [:]
     private var selectTask: Task<Void, Never>?
+    private let visibility: CategoryVisibilityStore
 
-    init(client: XtreamClient) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
+        self.visibility = visibility
+    }
+
+    /// Categories the user hasn't hidden.
+    var visibleCategories: [XtreamCategory] {
+        visibility.visible(categories, in: .movies)
+    }
+
+    var allHidden: Bool {
+        !categories.isEmpty && visibleCategories.isEmpty
     }
 
     func loadCategories() async {
         if !categories.isEmpty {
-            // Back after a cancelled first load: fetch the selected category again.
-            if movieState == .idle, let id = selectedCategoryID ?? categories.first?.id {
-                await select(id)
-            }
+            await reconcileSelection()
             return
         }
         guard categoryState != .loading else { return }
@@ -35,10 +43,26 @@ final class MoviesModel {
         do {
             categories = try await client.vodCategories()
             categoryState = categories.isEmpty ? .empty : .loaded
-            if let first = categories.first { await select(first.id) }
+            await reconcileSelection()
         } catch {
             // Leaving the section cancels the request; retry next time instead of showing an error.
             categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
+        }
+    }
+
+    /// Keeps the selection on a category that is still shown, since categories
+    /// can be hidden in Settings between visits. Also refetches after a
+    /// cancelled first load.
+    private func reconcileSelection() async {
+        let visible = visibleCategories
+        if let id = selectedCategoryID, visible.contains(where: { $0.id == id }) {
+            if movieState == .idle { await select(id) }
+        } else if let first = visible.first {
+            await select(first.id)
+        } else {
+            selectedCategoryID = nil
+            movies = []
+            movieState = .idle
         }
     }
 
@@ -89,14 +113,19 @@ struct MoviesView: View {
             HStack(alignment: .top, spacing: 24) {
                 CategoryColumn(
                     title: "Movies",
-                    categories: model.categories,
+                    categories: model.visibleCategories,
                     selectedID: model.selectedCategoryID,
                     focus: $focusedCategory
                 ) { category in
                     Task { await model.select(category.id) }
                 }
                 .frame(width: 360)
-                .overlay { LoadStateView(state: model.categoryState, emptyText: "No movie categories") }
+                .overlay {
+                    LoadStateView(
+                        state: model.allHidden ? .empty : model.categoryState,
+                        emptyText: model.allHidden ? allCategoriesHiddenText : "No movie categories"
+                    )
+                }
 
                 PosterGrid(items: model.movies) { movie in
                     NavigationLink(value: movie) {

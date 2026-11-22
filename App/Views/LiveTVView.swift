@@ -19,9 +19,16 @@ final class LiveTVModel {
     private(set) var detailStreamID: Int?
 
     private var streamCache: [String: [LiveStream]] = [:]
+    private let visibility: CategoryVisibilityStore
 
-    init(client: XtreamClient) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
+        self.visibility = visibility
+    }
+
+    /// Categories the user hasn't hidden.
+    var visibleCategories: [XtreamCategory] {
+        visibility.visible(categories, in: .live)
     }
 
     var showsFavorites: Bool {
@@ -33,10 +40,7 @@ final class LiveTVModel {
             await select(Self.favoritesID)
         }
         if !categories.isEmpty {
-            // Back after a cancelled first load: fetch the selected category again.
-            if streamState == .idle, !showsFavorites, let id = selectedCategoryID ?? categories.first?.id {
-                await select(id)
-            }
+            await reconcileSelection()
             return
         }
         guard categoryState != .loading else { return }
@@ -44,12 +48,25 @@ final class LiveTVModel {
         do {
             categories = try await client.liveCategories()
             categoryState = categories.isEmpty ? .empty : .loaded
-            if selectedCategoryID == nil, let first = categories.first {
-                await select(first.id)
-            }
+            await reconcileSelection()
         } catch {
             // Leaving the section cancels the request; retry next time instead of showing an error.
             categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
+        }
+    }
+
+    /// Keeps the selection on a category that is still shown, since categories
+    /// can be hidden in Settings between visits. Also refetches after a
+    /// cancelled first load. Favorites is always a valid selection.
+    private func reconcileSelection() async {
+        if showsFavorites { return }
+        let visible = visibleCategories
+        if let id = selectedCategoryID, visible.contains(where: { $0.id == id }) {
+            if streamState == .idle { await select(id) }
+        } else if let first = visible.first {
+            await select(first.id)
+        } else {
+            await select(Self.favoritesID)
         }
     }
 
@@ -241,7 +258,7 @@ struct LiveTVView: View {
 
                     chip("Favorites", id: LiveTVModel.favoritesID, systemImage: "heart.fill")
 
-                    ForEach(model.categories) { category in
+                    ForEach(model.visibleCategories) { category in
                         chip(category.name, id: category.id)
                     }
                 }
@@ -258,7 +275,7 @@ struct LiveTVView: View {
             }
         }
         .fullScreenCover(isPresented: $showingCategories) {
-            CategoryPicker(categories: model.categories, selectedID: model.selectedCategoryID) { id in
+            CategoryPicker(categories: model.visibleCategories, selectedID: model.selectedCategoryID) { id in
                 Task { await model.select(id) }
             }
         }

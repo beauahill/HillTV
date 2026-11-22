@@ -27,14 +27,23 @@ final class HomeModel {
 
     private static let railCount = 3
     private static let itemsPerRail = 20
+    private let visibility: CategoryVisibilityStore
+    /// What was hidden when the rails were built. A change means rebuild.
+    private var loadedWith: CategoryVisibility?
 
-    init(client: XtreamClient) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
+        self.visibility = visibility
     }
 
     func load() async {
+        // Categories hidden or shown in Settings since the last visit: build the rails again.
+        if state == .loaded || state == .empty, loadedWith != visibility.visibility {
+            state = .idle
+        }
         guard state == .idle else { return }
         state = .loading
+        let hiding = visibility.visibility
 
         // A failed or cancelled load must end somewhere retryable, never stuck.
         var firstError: Error?
@@ -50,6 +59,8 @@ final class HomeModel {
             state = .failed(firstError.localizedDescription)
             return
         }
+        movieCats = hiding.visible(movieCats, in: .movies)
+        seriesCats = hiding.visible(seriesCats, in: .series)
 
         async let movies = loadMovieRails(Array(movieCats.prefix(Self.railCount)))
         async let series = loadSeriesRails(Array(seriesCats.prefix(Self.railCount)))
@@ -61,6 +72,7 @@ final class HomeModel {
         }
         movieRails = loadedMovies
         seriesRails = loadedSeries
+        loadedWith = hiding
         state = (movieRails.isEmpty && seriesRails.isEmpty) ? .empty : .loaded
 
         featured = movieRails.lazy.flatMap(\.items).first { $0.posterURL != nil }

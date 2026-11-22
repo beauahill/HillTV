@@ -278,6 +278,9 @@ func clockString(_ seconds: Double) -> String {
         : String(format: "%d:%02d", minutes, secs)
 }
 
+/// Shown where a list of categories would be, when the user has hidden all of them.
+let allCategoriesHiddenText = "Every category here is hidden. Show some in Settings > Categories."
+
 /// "21 min left" or "1 h 5 min left".
 func remainingLabel(minutes: Int) -> String {
     guard minutes >= 60 else { return "\(minutes) min left" }

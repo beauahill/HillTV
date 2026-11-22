@@ -27,9 +27,13 @@ final class SearchModel {
     private var searchTask: Task<Void, Never>?
 
     private static let resultsPerRow = 40
+    /// Asked of the index before hidden categories are filtered out.
+    private static let searchDepth = 400
+    private let visibility: CategoryVisibilityStore
 
-    init(client: XtreamClient) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
+        self.visibility = visibility
     }
 
     var hasResults: Bool {
@@ -93,15 +97,21 @@ final class SearchModel {
             return
         }
         let limit = Self.resultsPerRow
+        let depth = Self.searchDepth
+        let hiding = visibility.visibility
         searchTask = Task { [weak self] in
             // Wait for a pause in typing, and drop searches the user typed past.
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             let found = await Task.detached(priority: .userInitiated) {
+                // Hidden categories stay out of results, the same as everywhere else.
                 (
-                    liveIndex.search(text, limit: limit),
-                    vodIndex.search(text, limit: limit),
-                    seriesIndex.search(text, limit: limit)
+                    Array(liveIndex.search(text, limit: depth)
+                        .filter { !hiding.isHidden($0.categoryID ?? "", in: .live) }.prefix(limit)),
+                    Array(vodIndex.search(text, limit: depth)
+                        .filter { !hiding.isHidden($0.categoryID ?? "", in: .movies) }.prefix(limit)),
+                    Array(seriesIndex.search(text, limit: depth)
+                        .filter { !hiding.isHidden($0.categoryID ?? "", in: .series) }.prefix(limit))
                 )
             }.value
             guard !Task.isCancelled, let self else { return }

@@ -17,17 +17,25 @@ final class SeriesModel {
 
     private var cache: [String: [SeriesItem]] = [:]
     private var selectTask: Task<Void, Never>?
+    private let visibility: CategoryVisibilityStore
 
-    init(client: XtreamClient) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
+        self.visibility = visibility
+    }
+
+    /// Categories the user hasn't hidden.
+    var visibleCategories: [XtreamCategory] {
+        visibility.visible(categories, in: .series)
+    }
+
+    var allHidden: Bool {
+        !categories.isEmpty && visibleCategories.isEmpty
     }
 
     func loadCategories() async {
         if !categories.isEmpty {
-            // Back after a cancelled first load: fetch the selected category again.
-            if itemState == .idle, let id = selectedCategoryID ?? categories.first?.id {
-                await select(id)
-            }
+            await reconcileSelection()
             return
         }
         guard categoryState != .loading else { return }
@@ -35,10 +43,26 @@ final class SeriesModel {
         do {
             categories = try await client.seriesCategories()
             categoryState = categories.isEmpty ? .empty : .loaded
-            if let first = categories.first { await select(first.id) }
+            await reconcileSelection()
         } catch {
             // Leaving the section cancels the request; retry next time instead of showing an error.
             categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
+        }
+    }
+
+    /// Keeps the selection on a category that is still shown, since categories
+    /// can be hidden in Settings between visits. Also refetches after a
+    /// cancelled first load.
+    private func reconcileSelection() async {
+        let visible = visibleCategories
+        if let id = selectedCategoryID, visible.contains(where: { $0.id == id }) {
+            if itemState == .idle { await select(id) }
+        } else if let first = visible.first {
+            await select(first.id)
+        } else {
+            selectedCategoryID = nil
+            items = []
+            itemState = .idle
         }
     }
 
@@ -89,14 +113,19 @@ struct SeriesView: View {
             HStack(alignment: .top, spacing: 24) {
                 CategoryColumn(
                     title: "Series",
-                    categories: model.categories,
+                    categories: model.visibleCategories,
                     selectedID: model.selectedCategoryID,
                     focus: $focusedCategory
                 ) { category in
                     Task { await model.select(category.id) }
                 }
                 .frame(width: 360)
-                .overlay { LoadStateView(state: model.categoryState, emptyText: "No series categories") }
+                .overlay {
+                    LoadStateView(
+                        state: model.allHidden ? .empty : model.categoryState,
+                        emptyText: model.allHidden ? allCategoriesHiddenText : "No series categories"
+                    )
+                }
 
                 PosterGrid(items: model.items) { item in
                     NavigationLink(value: item) {

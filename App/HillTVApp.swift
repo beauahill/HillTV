@@ -31,7 +31,7 @@ struct RootView: View {
                 LoginView()
             case .signedIn:
                 if let client = app.client {
-                    MainShell(client: client)
+                    MainShell(client: client, visibility: app.categoryVisibility)
                         // New client (sign out/in) gets fresh section state.
                         .id(ObjectIdentifier(client))
                 } else {
@@ -99,14 +99,14 @@ struct MainShell: View {
     @State private var epg: EPGStore
     @FocusState private var sidebarFocus: AppSection?
 
-    init(client: XtreamClient) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
-        _home = State(initialValue: HomeModel(client: client))
-        _search = State(initialValue: SearchModel(client: client))
-        _live = State(initialValue: LiveTVModel(client: client))
-        _guide = State(initialValue: GuideModel(client: client))
-        _movies = State(initialValue: MoviesModel(client: client))
-        _series = State(initialValue: SeriesModel(client: client))
+        _home = State(initialValue: HomeModel(client: client, visibility: visibility))
+        _search = State(initialValue: SearchModel(client: client, visibility: visibility))
+        _live = State(initialValue: LiveTVModel(client: client, visibility: visibility))
+        _guide = State(initialValue: GuideModel(client: client, visibility: visibility))
+        _movies = State(initialValue: MoviesModel(client: client, visibility: visibility))
+        _series = State(initialValue: SeriesModel(client: client, visibility: visibility))
         _epg = State(initialValue: EPGStore(client: client))
     }
 

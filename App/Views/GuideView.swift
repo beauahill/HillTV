@@ -32,9 +32,20 @@ final class GuideModel {
 
     private static let maxConcurrent = 4
     private static let entriesPerChannel = 12
+    private let visibility: CategoryVisibilityStore
 
-    init(client: XtreamClient) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
+        self.visibility = visibility
+    }
+
+    /// Categories the user hasn't hidden.
+    var visibleCategories: [XtreamCategory] {
+        visibility.visible(categories, in: .live)
+    }
+
+    var allHidden: Bool {
+        !categories.isEmpty && visibleCategories.isEmpty
     }
 
     // MARK: Categories and channels (same pattern as Live TV)
@@ -42,9 +53,7 @@ final class GuideModel {
     func loadCategories() async {
         refreshWindowIfNeeded()
         if !categories.isEmpty {
-            if channelState == .idle, let id = selectedCategoryID ?? categories.first?.id {
-                await select(id)
-            }
+            await reconcileSelection()
             return
         }
         guard categoryState != .loading else { return }
@@ -52,11 +61,25 @@ final class GuideModel {
         do {
             categories = try await client.liveCategories()
             categoryState = categories.isEmpty ? .empty : .loaded
-            if let first = categories.first {
-                await select(first.id)
-            }
+            await reconcileSelection()
         } catch {
             categoryState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
+        }
+    }
+
+    /// Keeps the selection on a category that is still shown, since categories
+    /// can be hidden in Settings between visits. Also refetches after a
+    /// cancelled first load.
+    private func reconcileSelection() async {
+        let visible = visibleCategories
+        if let id = selectedCategoryID, visible.contains(where: { $0.id == id }) {
+            if channelState == .idle { await select(id) }
+        } else if let first = visible.first {
+            await select(first.id)
+        } else {
+            selectedCategoryID = nil
+            channels = []
+            channelState = .idle
         }
     }
 
@@ -187,14 +210,19 @@ struct GuideView: View {
         HStack(alignment: .top, spacing: 24) {
             CategoryColumn(
                 title: "Guide",
-                categories: model.categories,
+                categories: model.visibleCategories,
                 selectedID: model.selectedCategoryID,
                 focus: $focusedCategory
             ) { category in
                 Task { await model.select(category.id) }
             }
             .frame(width: 320)
-            .overlay { LoadStateView(state: model.categoryState, emptyText: "No live categories") }
+            .overlay {
+                LoadStateView(
+                    state: model.allHidden ? .empty : model.categoryState,
+                    emptyText: model.allHidden ? allCategoriesHiddenText : "No live categories"
+                )
+            }
 
             GeometryReader { geo in
                 let timeline = max(geo.size.width - channelColumn, 200)

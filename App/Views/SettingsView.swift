@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
+    @State private var showingCategories = false
 
     var body: some View {
         ScrollView(.vertical) {
@@ -60,6 +61,28 @@ struct SettingsView: View {
                     InfoRow(label: "Live format", value: app.liveFormat == .hls ? "HLS (.m3u8)" : "MPEG-TS (.ts)")
                 }
 
+                SettingsCard(title: "Categories") {
+                    Button {
+                        showingCategories = true
+                    } label: {
+                        HStack {
+                            Text("Choose what to show")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                    }
+                    .buttonStyle(TVRowButtonStyle(font: .tvMeta))
+                    Text(hiddenSummary)
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                }
+                .fullScreenCover(isPresented: $showingCategories) {
+                    if let client = app.client {
+                        CategoryManagerView(client: client, store: app.categoryVisibility)
+                    }
+                }
+
                 SettingsCard(title: "Live TV preview") {
                     ForEach(LivePreviewMode.allCases) { mode in
                         Button {
@@ -99,6 +122,15 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    fileprivate var hiddenSummary: String {
+        let store = app.categoryVisibility
+        let counts = CatalogKind.allCases.map { store.hiddenCount(in: $0) }
+        if counts.allSatisfy({ $0 == 0 }) {
+            return "Nothing is hidden. Hide the categories you never watch to shorten every list."
+        }
+        return "Hidden: \(counts[0]) live, \(counts[1]) movie and \(counts[2]) series categories. Saved on this Apple TV only."
+    }
+
     fileprivate var previewNote: String {
         if !app.previewSupported {
             return "This provider doesn't offer HLS, so the preview can't play. Live TV shows a still instead."

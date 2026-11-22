@@ -27,6 +27,7 @@ final class AppModel {
 
     let favorites = FavoritesStore()
     let watchHistory = WatchHistoryStore()
+    let categoryVisibility = CategoryVisibilityStore()
 
     static let userAgent: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -90,6 +91,7 @@ final class AppModel {
         let client = XtreamClient(account: account, userAgent: Self.userAgent)
         self.client = client
         watchHistory.activate(account: account)
+        categoryVisibility.activate(account: account)
         phase = .signedIn
 
         // Refresh account details without holding up the UI.
@@ -115,6 +117,7 @@ final class AppModel {
 
         AccountStore.save(account)
         watchHistory.activate(account: account)
+        categoryVisibility.activate(account: account)
         self.client = client
         authInfo = info
         accountWarning = nil
@@ -124,6 +127,8 @@ final class AppModel {
     func signOut() {
         AccountStore.delete()
         watchHistory.clear()
+        // Hidden categories are kept for the next sign in; see CategoryVisibilityStore.
+        categoryVisibility.deactivate()
         client = nil
         authInfo = nil
         accountWarning = nil
