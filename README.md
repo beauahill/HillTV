@@ -12,6 +12,8 @@ Scores and team logos come from ESPN's public scoreboard feed, which is unoffici
 
 Hidden categories are saved on each Apple TV separately.
 
+Settings has a live buffer size and a live delay choice. They trim the player's share of the delay behind a live broadcast. Most of that delay comes from how the provider packages the stream.
+
 The live preview uses one of your provider's connections while it plays. It is off by default unless the account reports two or more connections, and you can change it under Settings > Live TV preview.
 
 ## Layout
