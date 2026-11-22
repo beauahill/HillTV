@@ -77,6 +77,10 @@ public final class XtreamClient: @unchecked Sendable {
         try await get(LossyArray<VODStream>.self, action: "get_vod_streams", query: categoryQuery(categoryID)).elements
     }
 
+    public func vodInfo(streamID: Int) async throws -> VODInfo {
+        try await get(VODInfo.self, action: "get_vod_info", query: [URLQueryItem(name: "vod_id", value: String(streamID))])
+    }
+
     public func seriesCategories() async throws -> [XtreamCategory] {
         try await get(LossyArray<XtreamCategory>.self, action: "get_series_categories").elements
     }
@@ -105,11 +109,21 @@ public final class XtreamClient: @unchecked Sendable {
     }
 
     public func movieURL(_ movie: VODStream) -> URL {
-        streamURL(kind: "movie", id: String(movie.id), ext: movie.containerExtension)
+        movieURL(streamID: movie.id, containerExtension: movie.containerExtension)
+    }
+
+    /// For resuming from watch history, which stores IDs rather than URLs
+    /// (stream URLs embed the password).
+    public func movieURL(streamID: Int, containerExtension: String) -> URL {
+        streamURL(kind: "movie", id: String(streamID), ext: containerExtension)
     }
 
     public func episodeURL(_ episode: Episode) -> URL {
-        streamURL(kind: "series", id: episode.id, ext: episode.containerExtension)
+        episodeURL(episodeID: episode.id, containerExtension: episode.containerExtension)
+    }
+
+    public func episodeURL(episodeID: String, containerExtension: String) -> URL {
+        streamURL(kind: "series", id: Self.encodePathSegment(episodeID), ext: containerExtension)
     }
 
     /// Full XMLTV guide. Large (often 10-100 MB); download and parse off the main thread.

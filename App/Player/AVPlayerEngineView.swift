@@ -8,9 +8,10 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
     let item: PlayableItem
     let userAgent: String
     @Binding var errorMessage: String?
+    var onProgress: (@MainActor (Double, Double?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(errorMessage: $errorMessage)
+        Coordinator(errorMessage: $errorMessage, onProgress: onProgress)
     }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
@@ -25,7 +26,7 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
         }
 
         let player = AVPlayer(playerItem: playerItem)
-        context.coordinator.observe(playerItem)
+        context.coordinator.observe(playerItem, player: player, startAt: item.isLive ? nil : item.startAt)
 
         let controller = AVPlayerViewController()
         controller.player = player
@@ -36,6 +37,9 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {}
 
     static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
+        // Save the final position, then remove the time observer from the same
+        // player that registered it, before letting the player go.
+        coordinator.reportProgress()
         coordinator.stop()
         controller.player?.pause()
         controller.player = nil
@@ -58,25 +62,72 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject {
         private let errorMessage: Binding<String?>
+        private let onProgress: (@MainActor (Double, Double?) -> Void)?
         private var statusObservation: NSKeyValueObservation?
+        private var timeObserver: Any?
+        private weak var player: AVPlayer?
+        private var pendingStart: Double?
 
-        init(errorMessage: Binding<String?>) {
+        init(errorMessage: Binding<String?>, onProgress: (@MainActor (Double, Double?) -> Void)?) {
             self.errorMessage = errorMessage
+            self.onProgress = onProgress
         }
 
-        func observe(_ item: AVPlayerItem) {
+        func observe(_ item: AVPlayerItem, player: AVPlayer, startAt: Double?) {
+            self.player = player
+            if let startAt, startAt > 0 { pendingStart = startAt }
+
             statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-                guard item.status == .failed else { return }
-                let message = item.error?.localizedDescription ?? "Unknown playback error."
                 DispatchQueue.main.async {
-                    self?.errorMessage.wrappedValue = message
+                    self?.statusChanged(item)
                 }
+            }
+
+            if onProgress != nil {
+                // queue: .main delivers on the main thread; the callback itself
+                // isn't main-actor isolated, so reportProgress hops explicitly.
+                timeObserver = player.addPeriodicTimeObserver(
+                    forInterval: CMTime(seconds: 10, preferredTimescale: 1),
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.reportProgress()
+                }
+            }
+        }
+
+        private func statusChanged(_ item: AVPlayerItem) {
+            switch item.status {
+            case .readyToPlay:
+                // Seeking before the item is ready can be ignored, so resume here.
+                if let start = pendingStart {
+                    pendingStart = nil
+                    player?.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+            case .failed:
+                errorMessage.wrappedValue = item.error?.localizedDescription ?? "Unknown playback error."
+            default:
+                break
+            }
+        }
+
+        func reportProgress() {
+            guard let onProgress, let player, let item = player.currentItem else { return }
+            // Still waiting to seek to the resume point: don't overwrite it with 0.
+            guard pendingStart == nil else { return }
+            let position = player.currentTime().seconds
+            let duration = item.duration.seconds
+            MainActor.assumeIsolated {
+                onProgress(position, duration.isFinite ? duration : nil)
             }
         }
 
         func stop() {
             statusObservation?.invalidate()
             statusObservation = nil
+            if let timeObserver, let player {
+                player.removeTimeObserver(timeObserver)
+            }
+            timeObserver = nil
         }
     }
 }

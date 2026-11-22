@@ -1,4 +1,5 @@
 import Foundation
+import HillTVCore
 import SwiftUI
 
 /// Something the player can open.
@@ -8,6 +9,65 @@ struct PlayableItem: Identifiable, Hashable {
     var subtitle: String?
     let url: URL
     let isLive: Bool
+    /// When set, the player saves progress under this entry (its position is ignored).
+    var history: WatchEntry?
+    /// Seconds to start from, for resuming.
+    var startAt: Double?
+}
+
+extension PlayableItem {
+    /// Rebuilds the stream URL from the IDs saved in history.
+    static func resuming(_ entry: WatchEntry, client: XtreamClient) -> PlayableItem? {
+        let url: URL
+        switch entry.kind {
+        case .movie:
+            guard let id = Int(entry.streamID) else { return nil }
+            url = client.movieURL(streamID: id, containerExtension: entry.containerExtension)
+        case .episode:
+            url = client.episodeURL(episodeID: entry.streamID, containerExtension: entry.containerExtension)
+        }
+        return PlayableItem(
+            id: entry.id,
+            title: entry.title,
+            subtitle: entry.subtitle,
+            url: url,
+            isLive: false,
+            history: entry,
+            startAt: entry.position
+        )
+    }
+}
+
+extension PlayableItem {
+    /// A movie from the start or from `startAt`, with a history entry so progress is saved.
+    static func movie(
+        _ movie: VODStream,
+        title: String,
+        subtitle: String?,
+        artworkURL: URL?,
+        client: XtreamClient,
+        startAt: Double?
+    ) -> PlayableItem {
+        let template = WatchEntry(
+            kind: .movie,
+            streamID: String(movie.id),
+            containerExtension: movie.containerExtension,
+            title: title,
+            subtitle: subtitle,
+            artworkURL: artworkURL,
+            position: 0,
+            duration: nil
+        )
+        return PlayableItem(
+            id: "movie-\(movie.id)",
+            title: title,
+            subtitle: subtitle,
+            url: client.movieURL(movie),
+            isLive: false,
+            history: template,
+            startAt: startAt
+        )
+    }
 }
 
 enum PlayerEngineKind: String, CaseIterable, Identifiable {
@@ -54,6 +114,8 @@ struct PlayerView: View {
     let item: PlayableItem
     let engine: PlayerEngineKind
     let userAgent: String
+    /// Called with (position, duration) in seconds while a movie or episode plays, and once on close.
+    var onProgress: (@MainActor (Double, Double?) -> Void)?
 
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
@@ -66,7 +128,7 @@ struct PlayerView: View {
             } else if engine == .ksPlayer && KSPlayerSupport.isLinked {
                 KSPlayerEngineView(item: item, userAgent: userAgent)
             } else {
-                AVPlayerEngineView(item: item, userAgent: userAgent, errorMessage: $errorMessage)
+                AVPlayerEngineView(item: item, userAgent: userAgent, errorMessage: $errorMessage, onProgress: onProgress)
             }
         }
         .ignoresSafeArea()
@@ -116,9 +178,21 @@ private struct PlayerCoverModifier: ViewModifier {
     @Binding var item: PlayableItem?
     @Environment(AppModel.self) private var app
 
+    private func progressHandler(for item: PlayableItem) -> (@MainActor (Double, Double?) -> Void)? {
+        guard !item.isLive, let template = item.history else { return nil }
+        let store = app.watchHistory
+        return { position, duration in
+            var entry = template
+            entry.position = position
+            entry.duration = duration
+            entry.updatedAt = Date()
+            store.record(entry)
+        }
+    }
+
     func body(content: Content) -> some View {
         content.fullScreenCover(item: $item) { item in
-            PlayerView(item: item, engine: app.engine, userAgent: AppModel.userAgent)
+            PlayerView(item: item, engine: app.engine, userAgent: AppModel.userAgent, onProgress: progressHandler(for: item))
         }
     }
 }
