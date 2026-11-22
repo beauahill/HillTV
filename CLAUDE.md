@@ -24,7 +24,7 @@ Anything that imports SwiftUI, UIKit, AVKit or Security can only be compiled in 
 
 Released as v0.2.0 (Nov 2026), the first version Beau called ready. Beau runs it on the Apple TV day to day. To cut the next release: bump `MARKETING_VERSION` in `project.yml`, merge to `main`, then push a `v*` tag on `main`; CI builds the IPA and attaches it to the GitHub release. Every push to `main` also publishes an automatic "Build N" prerelease.
 
-`HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser, `WatchHistory`, `SearchIndex`, `GuideWindow`, `EPGSchedule`, `CategoryGroup`, `CategoryVisibility`, `Scoreboard`, `GameMatcher`. 74 XCTest cases, passing in CI's Linux job.
+`HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser, `WatchHistory`, `SearchIndex`, `GuideWindow`, `EPGSchedule`, `CategoryGroup`, `CategoryVisibility`, `Scoreboard`, `GameMatcher`, `PlaybackSettings`. 83 XCTest cases, passing in CI's Linux job.
 
 `App/` (AVPlayer build) compiles green in CI as of Nov 2026. First device test (Nov 2026, with the older fixed sidebar): installs and runs. Focus between sidebar and content worked, and so did long-press Add to Favorites.
 
@@ -57,6 +57,13 @@ Added after that (Nov 2026, option 1 of three category-screen mockups). Compiled
 - Search. The system search keyboard is built for the full screen width and never fit beside the rail: first its left letters were clipped, then after a 56 pt nudge "z" ran off the right edge (both seen on the TV). Search now opens as a full-screen page with no rail (Beau's pick over a search box with the full-screen keyboard). First check: Menu closes the page. It is the only way out, and it relies on the system closing a full-screen cover, the same way the player closes. If Beau is ever stuck there, add an explicit exit; don't add one blind. Then check the whole letter row is on screen through "z" and the keys after it, results appear while typing, and detail pages and playback opened from results close back to Search. The section behind is rebuilt when Search closes, so it comes back at its top, not where it was scrolled.
 
 Where the build differs from the mockup: "All" only appears for groups of 2 to 12 categories (the mockup showed it everywhere), Sports uses "Games" in its place with every sports channel listed under the games, a game with several possible channels opens a list instead of tuning, and long category rows get a grid button.
+
+Added after 0.2.0 (Nov 2026), on the session branch, compiled but not run on the TV: Settings > Live buffer and Settings > Live delay. Check on device:
+
+- With both on their defaults, live playback should be exactly as in 0.2.0.
+- Live delay. Tune to a news channel with an on-screen clock and compare it with a phone, on Standard and then on Closest to live. Closest should be visibly nearer real time; note by how much, and whether it pauses more. Apple's documentation doesn't say whether a distance below the stream's recommendation is honored or quietly clamped, so "no change" is a possible result.
+- Keep up. After the stream stalls to load, the picture should skip ahead rather than stay further behind. Pressing Pause and Play should not skip ahead: the catch-up is documented as following buffering, not a user pause.
+- Live buffer. 1 second should start no slower and may stall more; 30 seconds should ride out a weak connection. Changes apply the next time a channel starts.
 
 Still never compiled: `KSPlayerEngineView.swift` (only built with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
 
@@ -96,6 +103,7 @@ Patterns to keep:
 - Sports scores come from ESPN's public scoreboard feed (`Scoreboard` and `ScoreboardClient` in core). It is unofficial and keyless, so treat every failure as "no scores" and fall back to plain channels; never show the user an error for it. Poll only while games are on screen (`LiveTVView.gamesActive`). Team logos load from the feed at run time; never commit them, the repo is public.
 - `GameMatcher` ties a game to channels from text alone. Both teams named in a channel name or guide listing is a sure match; a network name alone is not, because many channels share one. Tune directly only on exactly one sure match and open `GameChannelPicker` otherwise. Don't loosen this without device results: a wrong silent tune is worse than a list.
 - `EPGStore` (held by `MainShell`, shared by Live TV and Home) fetches short EPG for rows that stay on screen 300 ms, four requests at a time, and caches results including empty ones. `EPGSchedule.needsFetch` in core decides when to ask again. Views read `epg.now`, which ticks every 30 s, instead of `Date()`, so progress moves without each row running a timer. Guide still has its own fetch queue; fold it into `EPGStore` when Guide moves to XMLTV.
+- Playback settings (`PlaybackSettings` in core, `AppModel.playback`, applied in `AVPlayerEngineView`). The defaults must leave the player exactly as it was before the settings existed; only a non-default choice may change it. On AVPlayer, live buffer and live delay are one lever: a live stream can't hold more ahead than it plays behind the live edge, so `liveBufferSeconds(offsetTarget:)` caps the buffer by the chosen distance. The distance uses `configuredTimeOffsetFromLive`, set once per item after `recommendedTimeOffsetFromLive` is known, then a seek to positive infinity. These settings only trim the player's share of the delay. Most of it is the provider's HLS packaging; the real cut is raw MPEG-TS through KSPlayer (roadmap 2). KSPlayer and the live preview ignore these settings for now. The settings decode leniently, so add new ones the same way.
 - Live preview: `LivePreviewView` is always AVPlayer with the HLS URL, whatever the main engine is. `LiveTVView.runPreview` owns its lifetime through `.task(id:)`. The preview must never hold a connection it can't be seen using: keep the stops for player open, scene inactive and idle timeout if this is reworked.
 - `AppModel` goes in the environment. `.playerCover(item:)` presents the player and passes engine and user agent explicitly rather than relying on environment propagation into the cover.
 - Player engine abstraction: `PlayerView` picks AVPlayer or KSPlayer. `KSPlayerEngineView.swift` has a `#if canImport(KSPlayerUI)` stub so nothing else needs conditional compilation.
@@ -119,7 +127,7 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 ## Roadmap (rough priority)
 
 1. Get CI green with AVPlayer, install via atvloadly, smoke test on the TV.
-2. Turn on KSPlayer (`USE_KSPLAYER=true`), get it green, then pin a KSPlayer revision in `project-ksplayer.yml` instead of `branch: main`.
+2. Turn on KSPlayer (`USE_KSPLAYER=true`), get it green, then pin a KSPlayer revision in `project-ksplayer.yml` instead of `branch: main`. Beau asked about cutting the delay behind live broadcasts (Nov 2026): this is the step that does it, by playing raw `.ts` with a small buffer. Give it the live buffer setting and a stream format choice (TS or HLS) when it lands.
 3. App icon and Top Shelf brand assets: done (Nov 2026), needs a look on the TV.
 4. Channel zapping inside the player (up/down for prev/next channel in the current category), plus "last channel" quick switch.
 5. Full XMLTV guide. The Guide grid exists but uses short EPG per channel; switch its data source to XMLTV for full-day listings. Download `client.xmltvURL` (often gzipped, 10-100 MB), stream-parse with `XMLParser` off the main thread, store in SQLite in Caches, map by `epg_channel_id`.
@@ -132,7 +140,8 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 12. Sports: better game matching once XMLTV is stored (search every sports channel's listings, not just the ones already fetched), a setting for which leagues to follow, and letting the user move a category to a different pill.
 13. Sync hidden categories and favorites between Apple TVs with iCloud key-value storage.
 14. Android TV app (Kotlin, Compose for TV, Media3). Beau asked about it; the plan is to settle the Apple TV design on device first, then port `HillTVCore`'s logic and tests to Kotlin.
-15. Multiple accounts.
+15. More settings, in the spirit of UHF. Only three of UHF's are confirmed from its release notes: a buffer in seconds (done), a preferred live stream format, TS or M3U8 (needs KSPlayer), and channel previews while browsing (done as Live TV preview). Beau was asked for photos of UHF's Settings screens for the rest. Candidates from UHF's feature list: reconnect automatically when a stream drops, a PIN lock on categories, default audio and subtitle language, renaming and reordering channels and categories, a guide time offset in hours (which would also cover the `parsePanelDate` gap below). If the Settings page grows much more it needs sub-pages, which is a layout change: mock it up first.
+16. Multiple accounts.
 
 Related known gap: `EPGEntry.parsePanelDate` assumes UTC when a panel sends no timestamps. It should use the panel timezone from `server_info`.
 
