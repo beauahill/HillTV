@@ -1,4 +1,5 @@
 import AVKit
+import HillTVCore
 import SwiftUI
 
 /// AVPlayerViewController wrapped for SwiftUI. Gives the stock tvOS transport
@@ -7,11 +8,13 @@ import SwiftUI
 struct AVPlayerEngineView: UIViewControllerRepresentable {
     let item: PlayableItem
     let userAgent: String
+    /// Live buffer and live delay. The defaults change nothing here.
+    var settings = PlaybackSettings()
     @Binding var errorMessage: String?
     var onProgress: (@MainActor (Double, Double?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(errorMessage: $errorMessage, onProgress: onProgress)
+        Coordinator(errorMessage: $errorMessage, onProgress: onProgress, liveSettings: item.isLive ? settings : nil)
     }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
@@ -21,8 +24,13 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
         let playerItem = AVPlayerItem(asset: asset)
         playerItem.externalMetadata = Self.metadata(for: item)
         if item.isLive {
-            // Small buffer keeps live channels closer to real time.
-            playerItem.preferredForwardBufferDuration = 4
+            // A small buffer keeps live channels closer to real time. 4 s unless changed in Settings.
+            playerItem.preferredForwardBufferDuration = settings.liveBuffer.seconds
+            if settings.preservesLiveOffset {
+                // After a stall, skip ahead to the distance from live it had
+                // before, instead of staying that much further behind.
+                playerItem.automaticallyPreservesTimeOffsetFromLive = true
+            }
         }
 
         let player = AVPlayer(playerItem: playerItem)
@@ -63,14 +71,22 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
     final class Coordinator: NSObject {
         private let errorMessage: Binding<String?>
         private let onProgress: (@MainActor (Double, Double?) -> Void)?
+        /// Set for live channels only.
+        private let liveSettings: PlaybackSettings?
+        private var appliedLiveOffset = false
         private var statusObservation: NSKeyValueObservation?
         private var timeObserver: Any?
         private weak var player: AVPlayer?
         private var pendingStart: Double?
 
-        init(errorMessage: Binding<String?>, onProgress: (@MainActor (Double, Double?) -> Void)?) {
+        init(
+            errorMessage: Binding<String?>,
+            onProgress: (@MainActor (Double, Double?) -> Void)?,
+            liveSettings: PlaybackSettings?
+        ) {
             self.errorMessage = errorMessage
             self.onProgress = onProgress
+            self.liveSettings = liveSettings
         }
 
         func observe(_ item: AVPlayerItem, player: AVPlayer, startAt: Double?) {
@@ -103,11 +119,28 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
                     pendingStart = nil
                     player?.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                 }
+                moveCloserToLive(item)
             case .failed:
                 errorMessage.wrappedValue = item.error?.localizedDescription ?? "Unknown playback error."
             default:
                 break
             }
+        }
+
+        /// "Closest to live" only, once per channel. The stream's recommended
+        /// distance is known only after it has loaded, so this can't be set
+        /// up front. Every other setting returns no target and leaves the
+        /// player exactly as it was.
+        private func moveCloserToLive(_ item: AVPlayerItem) {
+            guard let liveSettings, !appliedLiveOffset else { return }
+            appliedLiveOffset = true
+            let recommended = item.recommendedTimeOffsetFromLive
+            guard let target = liveSettings.liveOffsetTarget(recommended: recommended.isNumeric ? recommended.seconds : nil) else { return }
+            item.configuredTimeOffsetFromLive = CMTime(seconds: target, preferredTimescale: 600)
+            // A live stream can't hold more ahead than it plays behind the live edge.
+            item.preferredForwardBufferDuration = liveSettings.liveBufferSeconds(offsetTarget: target)
+            // The new distance takes effect on a seek to the live edge.
+            player?.seek(to: CMTime.positiveInfinity)
         }
 
         func reportProgress() {

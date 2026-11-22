@@ -114,6 +114,8 @@ struct PlayerView: View {
     let item: PlayableItem
     let engine: PlayerEngineKind
     let userAgent: String
+    /// Live buffer and live delay, from Settings.
+    var settings = PlaybackSettings()
     /// Called with (position, duration) in seconds while a movie or episode plays, and once on close.
     var onProgress: (@MainActor (Double, Double?) -> Void)?
 
@@ -128,7 +130,13 @@ struct PlayerView: View {
             } else if engine == .ksPlayer && KSPlayerSupport.isLinked {
                 KSPlayerEngineView(item: item, userAgent: userAgent)
             } else {
-                AVPlayerEngineView(item: item, userAgent: userAgent, errorMessage: $errorMessage, onProgress: onProgress)
+                AVPlayerEngineView(
+                    item: item,
+                    userAgent: userAgent,
+                    settings: settings,
+                    errorMessage: $errorMessage,
+                    onProgress: onProgress
+                )
             }
         }
         .ignoresSafeArea()
@@ -192,7 +200,13 @@ private struct PlayerCoverModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.fullScreenCover(item: $item) { item in
-            PlayerView(item: item, engine: app.engine, userAgent: AppModel.userAgent, onProgress: progressHandler(for: item))
+            PlayerView(
+                item: item,
+                engine: app.engine,
+                userAgent: AppModel.userAgent,
+                settings: app.playback,
+                onProgress: progressHandler(for: item)
+            )
         }
     }
 }
