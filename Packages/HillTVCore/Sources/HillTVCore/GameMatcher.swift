@@ -37,6 +37,54 @@ public enum GameMatcher {
         channels: [LiveStream],
         schedules: [Int: EPGSchedule] = [:]
     ) -> [GameChannelMatch] {
+        matches(for: game, in: index(channels, schedules: schedules))
+    }
+
+    /// The same for many games at once, keyed by game ID. Channel names and
+    /// guide titles are folded once instead of once per game.
+    public static func matches(
+        forAll games: [SportsGame],
+        channels: [LiveStream],
+        schedules: [Int: EPGSchedule] = [:]
+    ) -> [String: [GameChannelMatch]] {
+        let indexed = index(channels, schedules: schedules)
+        var result: [String: [GameChannelMatch]] = [:]
+        for game in games where result[game.id] == nil {
+            result[game.id] = matches(for: game, in: indexed)
+        }
+        return result
+    }
+
+    /// A channel with its searchable text prepared.
+    struct IndexedChannel {
+        struct Listing {
+            let start: Date
+            let end: Date
+            let text: String
+        }
+
+        let stream: LiveStream
+        let name: String
+        let listings: [Listing]
+    }
+
+    /// Folds every channel's name and guide text. Repeated stream IDs are dropped.
+    static func index(_ channels: [LiveStream], schedules: [Int: EPGSchedule]) -> [IndexedChannel] {
+        var seen = Set<Int>()
+        return channels.compactMap { channel in
+            guard seen.insert(channel.id).inserted else { return nil }
+            let listings = (schedules[channel.id]?.entries ?? []).map { entry in
+                IndexedChannel.Listing(
+                    start: entry.start,
+                    end: entry.end,
+                    text: fold(entry.title + " " + (entry.summary ?? ""))
+                )
+            }
+            return IndexedChannel(stream: channel, name: fold(channel.name), listings: listings)
+        }
+    }
+
+    static func matches(for game: SportsGame, in channels: [IndexedChannel]) -> [GameChannelMatch] {
         let home = TeamPhrases(game.home)
         let away = TeamPhrases(game.away)
         let networks = game.networks.map { fold($0) }.filter { !$0.isEmpty }
@@ -46,21 +94,15 @@ public enum GameMatcher {
 
         var strong: [GameChannelMatch] = []
         var weak: [GameChannelMatch] = []
-        var seen = Set<Int>()
 
-        for channel in channels where seen.insert(channel.id).inserted {
-            let name = fold(channel.name)
-            var texts = [name]
-            if let schedule = schedules[channel.id] {
-                for entry in schedule.entries where entry.end > windowStart && entry.start < windowEnd {
-                    texts.append(fold(entry.title))
-                    if let summary = entry.summary { texts.append(fold(summary)) }
-                }
+        for channel in channels {
+            let inGuide = channel.listings.contains { listing in
+                listing.end > windowStart && listing.start < windowEnd && names(bothOf: home, away, in: listing.text)
             }
-            if texts.contains(where: { names(bothOf: home, away, in: $0) }) {
-                strong.append(GameChannelMatch(stream: channel, strength: .teams))
-            } else if networks.contains(where: { isNetwork($0, channelName: name) }) {
-                weak.append(GameChannelMatch(stream: channel, strength: .network))
+            if inGuide || names(bothOf: home, away, in: channel.name) {
+                strong.append(GameChannelMatch(stream: channel.stream, strength: .teams))
+            } else if networks.contains(where: { isNetwork($0, channelName: channel.name) }) {
+                weak.append(GameChannelMatch(stream: channel.stream, strength: .network))
             }
         }
         return strong + weak

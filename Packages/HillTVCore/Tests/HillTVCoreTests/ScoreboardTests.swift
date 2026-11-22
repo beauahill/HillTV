@@ -227,6 +227,31 @@ final class GameMatcherTests: XCTestCase {
         XCTAssertEqual(matches.map(\.strength), [.teams, .teams, .network])
     }
 
+    func testMatchingManyGamesAtOnceAgreesWithOneAtATime() throws {
+        let other = SportsGame(
+            id: "g2",
+            league: SportsLeague(sport: "football", slug: "test", name: "Test"),
+            start: Date(timeIntervalSince1970: base),
+            state: .scheduled,
+            statusText: "",
+            home: SportsTeam(displayName: "Prairie Hawks", shortName: "Hawks", location: "Prairie", nickname: "Hawks"),
+            away: SportsTeam(displayName: "Harbor City Gulls", shortName: "Gulls", location: "Harbor City", nickname: "Gulls")
+        )
+        let channels = [
+            LiveStream(id: 1, name: "US: ESPN HD"),
+            LiveStream(id: 2, name: "FOOTBALL 01: Gulls vs Hawks"),
+            LiveStream(id: 3, name: "HOCKEY 03: Otters vs Kings"),
+        ]
+
+        let all = GameMatcher.matches(forAll: [game, other, game], channels: channels)
+
+        XCTAssertEqual(all.count, 2)
+        XCTAssertEqual(all["g1"], GameMatcher.matches(for: game, channels: channels))
+        XCTAssertEqual(all["g2"], GameMatcher.matches(for: other, channels: channels))
+        XCTAssertEqual(all["g1"]?.map(\.stream.id), [3, 1])
+        XCTAssertEqual(all["g2"]?.map(\.stream.id), [2])
+    }
+
     func testNoChannelsNoMatches() {
         XCTAssertEqual(GameMatcher.matches(for: game, channels: []), [])
     }
