@@ -4,9 +4,13 @@ A personal IPTV player for Apple TV, in the spirit of UHF and Chillio. SwiftUI, 
 
 ## What works in this starter
 
-Xtream login stored in the Keychain. A slim icon rail for navigation that widens when focused, with a dark, blue-accented look. Home with a featured movie, what's live on your favorite channels, continue watching, and rails for movies and series. Search by name across channels, movies and series. Live TV with category chips, a channel list showing what's on now and how far along it is, and a detail pane with the next few programmes and an optional live preview of the focused channel. A guide grid showing the next three hours per channel. Favorites (long-press Select on a channel). Movies with poster grids and detail pages, Series with season and episode lists. Movies and episodes resume where you stopped (AVPlayer builds). Settings with account status, connection count and a player picker. Two playback engines: Apple's AVPlayer (default, HLS only) and KSPlayer (FFmpeg, optional, plays raw `.ts`, mkv, AC3 and DTS).
+Xtream login stored in the Keychain. A slim icon rail for navigation that widens when focused, with a dark, blue-accented look. Home with a featured movie, what's live on your favorite channels, continue watching, and rails for movies and series. Search by name across channels, movies and series. Live TV with big pills for Favorites, Sports, News, Movies, Shows, Kids, Music and World, a channel list showing what's on now and how far along it is, and a detail pane with the next few programmes and an optional live preview of the focused channel. In Sports, games show team logos and live scores and tune to the channel carrying them. Categories you never watch can be hidden under Settings > Categories. A guide grid showing the next three hours per channel. Favorites (long-press Select on a channel). Movies with poster grids and detail pages, Series with season and episode lists. Movies and episodes resume where you stopped (AVPlayer builds). Settings with account status, connection count and a player picker. Two playback engines: Apple's AVPlayer (default, HLS only) and KSPlayer (FFmpeg, optional, plays raw `.ts`, mkv, AC3 and DTS).
 
 The networking and parsing code lives in `Packages/HillTVCore` and has unit tests that run on Linux or macOS. The SwiftUI layer compiles in CI. The current look has not been run on an Apple TV yet; CLAUDE.md lists what to check on the first install.
+
+Scores and team logos come from ESPN's public scoreboard feed, which is unofficial and may change or stop. If it does, Sports shows plain channels. Games are matched to your channels by team and network names, so some will be wrong or missing.
+
+Hidden categories are saved on each Apple TV separately.
 
 The live preview uses one of your provider's connections while it plays. It is off by default unless the account reports two or more connections, and you can change it under Settings > Live TV preview.
 
