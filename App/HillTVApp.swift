@@ -160,6 +160,9 @@ struct MainShell: View {
             HomeView(model: home, epg: epg) { section = .search }
         case .search:
             SearchView(model: search)
+                // The system search keyboard draws a little past its leading
+                // edge, where the rail and the content mask cut it off.
+                .padding(.leading, 56)
         case .live:
             LiveTVView(model: live, epg: epg)
         case .guide:
