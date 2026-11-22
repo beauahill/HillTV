@@ -15,20 +15,25 @@ public struct SportsLeague: Hashable, Sendable, Identifiable {
     public let slug: String
     /// Short label for a game row, like "NFL".
     public let name: String
+    /// Extra query string, like "groups=80". The college feeds list only
+    /// ranked teams' games without one.
+    public let query: String?
 
     public var id: String { "\(sport)/\(slug)" }
 
-    public init(sport: String, slug: String, name: String) {
+    public init(sport: String, slug: String, name: String, query: String? = nil) {
         self.sport = sport
         self.slug = slug
         self.name = name
+        self.query = query
     }
 
     public static let defaults: [SportsLeague] = [
         SportsLeague(sport: "football", slug: "nfl", name: "NFL"),
-        SportsLeague(sport: "football", slug: "college-football", name: "College Football"),
+        // groups=80 is every FBS game; groups=50 is every Division I game.
+        SportsLeague(sport: "football", slug: "college-football", name: "College Football", query: "groups=80"),
         SportsLeague(sport: "basketball", slug: "nba", name: "NBA"),
-        SportsLeague(sport: "basketball", slug: "mens-college-basketball", name: "College Basketball"),
+        SportsLeague(sport: "basketball", slug: "mens-college-basketball", name: "College Basketball", query: "groups=50"),
         SportsLeague(sport: "hockey", slug: "nhl", name: "NHL"),
         SportsLeague(sport: "baseball", slug: "mlb", name: "MLB"),
         SportsLeague(sport: "soccer", slug: "usa.1", name: "MLS"),
@@ -121,7 +126,8 @@ public enum Scoreboard {
     }
 
     public static func url(for league: SportsLeague) -> URL {
-        URL(string: "https://site.api.espn.com/apis/site/v2/sports/\(league.sport)/\(league.slug)/scoreboard")!
+        let base = "https://site.api.espn.com/apis/site/v2/sports/\(league.sport)/\(league.slug)/scoreboard"
+        return URL(string: league.query.map { "\(base)?\($0)" } ?? base)!
     }
 
     /// Decodes one league's feed. Events that are missing a team or a start

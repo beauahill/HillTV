@@ -32,6 +32,11 @@ final class LiveTVModel {
     private(set) var categories: [XtreamCategory] = []
     private(set) var categoryState: LoadState = .idle
     private(set) var selection: Selection?
+    /// Category groups that have something to show, in pill order. Stored,
+    /// not computed: the view reads it several times per render, and
+    /// sorting every category into a group on each focus move would make
+    /// scrolling the channel list pay for it. See `refreshGroups()`.
+    private(set) var groups: [GroupedCategories] = []
     private(set) var streams: [LiveStream] = []
     private(set) var streamState: LoadState = .idle
     /// The channel the detail pane shows: the last one that held focus.
@@ -60,11 +65,6 @@ final class LiveTVModel {
 
     var allHidden: Bool {
         !categories.isEmpty && visibleCategories.isEmpty
-    }
-
-    /// Category groups that have something to show, in pill order.
-    var groups: [GroupedCategories] {
-        CategoryGroup.grouping(visibleCategories)
     }
 
     var showsFavorites: Bool {
@@ -181,6 +181,7 @@ final class LiveTVModel {
     /// categories can be hidden in Settings between visits. Also refetches
     /// after a cancelled first load.
     private func reconcileSelection() async {
+        refreshGroups()
         let groups = self.groups
         guard let selection else {
             await selectFirst(in: groups)
@@ -204,6 +205,13 @@ final class LiveTVModel {
                 await load()
             }
         }
+    }
+
+    /// Runs whenever Live TV appears, which covers both ways the groups can
+    /// change: categories arriving, and categories hidden or shown in
+    /// Settings while Live TV was off screen.
+    private func refreshGroups() {
+        groups = CategoryGroup.grouping(visibleCategories)
     }
 
     private func selectFirst(in groups: [GroupedCategories]) async {

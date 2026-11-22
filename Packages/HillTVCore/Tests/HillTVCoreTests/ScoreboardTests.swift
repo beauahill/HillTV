@@ -145,6 +145,16 @@ final class ScoreboardTests: XCTestCase {
         XCTAssertEqual(Scoreboard.url(for: nfl).absoluteString, "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard")
     }
 
+    func testCollegeLeaguesAskForEveryGameNotJustRankedTeams() throws {
+        let football = try XCTUnwrap(SportsLeague.defaults.first { $0.slug == "college-football" })
+        XCTAssertEqual(
+            Scoreboard.url(for: football).absoluteString,
+            "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80"
+        )
+        let basketball = try XCTUnwrap(SportsLeague.defaults.first { $0.slug == "mens-college-basketball" })
+        XCTAssertEqual(Scoreboard.url(for: basketball).query, "groups=50")
+    }
+
     // MARK: Sections
 
     private let base: TimeInterval = 1_800_000_000
