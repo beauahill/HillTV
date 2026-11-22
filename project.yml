@@ -47,6 +47,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.beauahill.hilltv
+        # The layered icon and Top Shelf images in App/Assets.xcassets.
+        # Regenerate them with Tools/make_icon.py.
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
         TARGETED_DEVICE_FAMILY: "3"
         CODE_SIGN_STYLE: Automatic
         ENABLE_PREVIEWS: YES
