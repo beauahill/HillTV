@@ -65,7 +65,14 @@ Added after 0.2.0 (Nov 2026), on the session branch, compiled but not run on the
 - Keep up. After the stream stalls to load, the picture should skip ahead rather than stay further behind. Pressing Pause and Play should not skip ahead: the catch-up is documented as following buffering, not a user pause.
 - Live buffer. 1 second should start no slower and may stall more; 30 seconds should ride out a weak connection. Changes apply the next time a channel starts.
 
-Still never compiled: `KSPlayerEngineView.swift` (only built with `project-ksplayer.yml`). Written against KSPlayer `main` as of Nov 2026: `KSVideoPlayerView(coordinator:url:options:title:subtitleDataSource:)` (the labeled form, because two of their inits overlap), `KSOptions.firstPlayerType/secondPlayerType`, `options.isLive`, `options.userAgent`. If their API moved, check `Sources/KSPlayerUI/SwiftUI/KSVideoPlayerView.swift` in their repo.
+KSPlayer build (Nov 2026): compiles green in CI against KSPlayer 5.6.2, pinned by commit in `project-ksplayer.yml`. Never run on the TV. It exists to cut the delay behind live broadcasts by playing raw MPEG-TS. Check on device, with a `-ks` build installed (Settings > About shows "KSPlayer: Included") and "KSPlayer for live channels" picked in Settings > Player:
+
+- A live channel plays at all, with sound, and Menu exits. KSPlayer's own view handles Menu: it hides its controls if they are showing, otherwise dismisses, so it can take two presses.
+- The clock test: a news channel's on-screen clock against a phone, on the Apple player and then on KSPlayer. This is the whole point; note the difference in seconds.
+- A dead channel shows the app's error screen, not a black screen.
+- Movies and episodes still open in the Apple player and still resume.
+- KSPlayer draws its own on-screen controls, which don't match the app. Restyling or replacing them is a mockup question for later.
+- If live playback breaks, switch back to "Apple player" in Settings. Nothing else depends on KSPlayer.
 
 Some cloud sessions have no Swift toolchain, so `swift test` and the `test-runner` subagent can't run there. Push and let CI's `core-tests` job run them; on a branch, start it with a manual `workflow_dispatch` (only `main` pushes trigger automatically, and releases only publish from `main` and tags).
 
@@ -106,7 +113,8 @@ Patterns to keep:
 - Playback settings (`PlaybackSettings` in core, `AppModel.playback`, applied in `AVPlayerEngineView`). The defaults must leave the player exactly as it was before the settings existed; only a non-default choice may change it. On AVPlayer, live buffer and live delay are one lever: a live stream can't hold more ahead than it plays behind the live edge, so `liveBufferSeconds(offsetTarget:)` caps the buffer by the chosen distance. The distance uses `configuredTimeOffsetFromLive`, set once per item after `recommendedTimeOffsetFromLive` is known, then a seek to positive infinity. These settings only trim the player's share of the delay. Most of it is the provider's HLS packaging; the real cut is raw MPEG-TS through KSPlayer (roadmap 2). KSPlayer and the live preview ignore these settings for now. The settings decode leniently, so add new ones the same way.
 - Live preview: `LivePreviewView` is always AVPlayer with the HLS URL, whatever the main engine is. `LiveTVView.runPreview` owns its lifetime through `.task(id:)`. The preview must never hold a connection it can't be seen using: keep the stops for player open, scene inactive and idle timeout if this is reworked.
 - `AppModel` goes in the environment. `.playerCover(item:)` presents the player and passes engine and user agent explicitly rather than relying on environment propagation into the cover.
-- Player engine abstraction: `PlayerView` picks AVPlayer or KSPlayer. `KSPlayerEngineView.swift` has a `#if canImport(KSPlayerUI)` stub so nothing else needs conditional compilation.
+- Player engine abstraction: `PlayerView` picks AVPlayer or KSPlayer. `KSPlayerEngineView.swift` has a `#if canImport(KSPlayerUI)` stub so nothing else needs conditional compilation; keep the stub's signature in step with the real view. KSPlayer is used for live channels only (`PlayerView` checks `item.isLive`), because its view has no start position and reports no progress: movies and episodes would lose resume and continue watching. The Apple player is always the default, even in a build that includes KSPlayer; the user opts in under Settings. Every change to the player now needs both builds green: `gh workflow run build.yml --ref <branch>` and the same with `-f ksplayer=true`. They no longer cancel each other.
+- KSPlayer's core is a prebuilt binary; its API is in `Sources/KSPlayer.xcframework/tvos-arm64/KSPlayer.framework/Modules/KSPlayer.swiftmodule/arm64-apple-tvos.swiftinterface` in their repo, and its SwiftUI layer is source under `Sources/KSPlayerUI/SwiftUI`. Read those before changing `KSPlayerEngineView.swift` or moving the pinned commit. Its free build is GPL-3.0: building it for yourself is fine, but publishing KSPlayer IPAs (a release, or `USE_KSPLAYER=true` on `main`) means licensing this repo as GPL-3.0 too. That is Beau's call; don't set the variable, tag or merge a KSPlayer default without asking.
 - Live URLs: AVPlayer gets `.m3u8`, KSPlayer gets `.ts` unless the panel's `allowed_output_formats` lacks it. See `AppModel.liveFormat`.
 - Xtream JSON is messy. All decoding goes through the `lenient*` helpers and `LossyArray` so a bad row or a `"1"` vs `1` never fails a whole list. Add a test with a realistic ugly payload for every new endpoint.
 - Credentials: query items need `+` encoded as `%2B` (`fixPlusEncoding`), path segments need `/?#;` encoded (`encodePathSegment`). Both are tested; don't rebuild URLs by hand elsewhere.
@@ -117,7 +125,7 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 
 - No WebKit on tvOS. Web-based players (IPTVnator, PWAs) cannot be embedded; port logic instead.
 - UserDefaults is capped around 500 KB and Caches can be purged. Keep channel lists and EPG in memory or Caches and refetch. Persist only small things (favorites, settings). For durable sync across Apple TVs, use iCloud key-value storage later.
-- AVPlayer plays HLS and mp4 only. Raw MPEG-TS and most mkv need KSPlayer.
+- AVPlayer plays HLS and mp4 only. Raw MPEG-TS and most mkv need KSPlayer. A KSPlayer IPA is about 23 MB against 1.3 MB without it.
 - Focus engine: everything interactive must be a `Button`, `NavigationLink` or have `.focusable()`. Test focus paths, not just looks.
 - Menu/Back button: confirm on device that it dismisses the full-screen player from both engines. If AVPlayerViewController swallows it, add `.onExitCommand` handling.
 - ATS is wide open (`NSAllowsArbitraryLoads`) because most panels are plain http. Fine for sideloading.
@@ -127,7 +135,7 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 ## Roadmap (rough priority)
 
 1. Get CI green with AVPlayer, install via atvloadly, smoke test on the TV.
-2. Turn on KSPlayer (`USE_KSPLAYER=true`), get it green, then pin a KSPlayer revision in `project-ksplayer.yml` instead of `branch: main`. Beau asked about cutting the delay behind live broadcasts (Nov 2026): this is the step that does it, by playing raw `.ts` with a small buffer. Give it the live buffer setting and a stream format choice (TS or HLS) when it lands.
+2. KSPlayer: compiles and is pinned (Nov 2026), live channels only, opt-in. Next, in order: Beau's device test and clock measurement; then a stream format choice (TS or HLS); then, only if the plain build still lags, FFmpeg low-latency options (`formatContextOptions`, `isSecondOpen`, `liveAdaptivePlaybackRate`), one at a time with a measurement each; then resume and progress saving so it can play movies (mkv, DTS) too.
 3. App icon and Top Shelf brand assets: done (Nov 2026), needs a look on the TV.
 4. Channel zapping inside the player (up/down for prev/next channel in the current category), plus "last channel" quick switch.
 5. Full XMLTV guide. The Guide grid exists but uses short EPG per channel; switch its data source to XMLTV for full-day listings. Download `client.xmltvURL` (often gzipped, 10-100 MB), stream-parse with `XMLParser` off the main thread, store in SQLite in Caches, map by `epg_channel_id`.
