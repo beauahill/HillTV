@@ -101,7 +101,7 @@ struct SettingsView: View {
                         .font(.tvSmall)
                         .foregroundStyle(Theme.muted)
                         .padding(.horizontal, 24)
-                    Text("Most of the delay comes from how your provider packages the stream, which the app can't change. These settings need the Apple player and take effect the next time you start a channel.")
+                    Text("Most of the delay comes from how your provider packages the stream, which the app can't change. Live delay only affects the Apple player; KSPlayer avoids that packaging altogether. Changes take effect the next time you start a channel.")
                         .font(.tvSmall)
                         .foregroundStyle(Theme.muted)
                         .padding(.horizontal, 24)

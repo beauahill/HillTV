@@ -5,7 +5,9 @@
 # - KSPlayer's free build is GPL-3.0. Fine for personal use; selling the app
 #   means open-sourcing it or buying their LGPL license.
 # - Its package uses unsafeFlags, which SwiftPM only allows for branch/revision
-#   dependencies, so this tracks `main`. Pin a revision once it builds clean.
+#   dependencies, so it can't be pinned by version. It is pinned to the commit
+#   of 5.6.2 (2026-11-02), the one KSPlayerEngineView.swift was checked against.
+#   When moving it, read the new Sources/KSPlayerUI and the tvOS .swiftinterface.
 # - It ships a prebuilt binary compiled with a recent Swift, so build with the
 #   newest stable Xcode.
 include:
@@ -14,7 +16,7 @@ include:
 packages:
   KSPlayer:
     url: https://github.com/kingslay/KSPlayer.git
-    branch: main
+    revision: 3df1658c3b4a94edc9c9927b8fcc2553a68e9e54
 
 targets:
   HillTV:

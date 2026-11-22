@@ -74,25 +74,27 @@ enum PlayerEngineKind: String, CaseIterable, Identifiable {
     /// Apple's player. HLS (.m3u8) and mp4 only, but hardware-perfect and
     /// gets the native tvOS transport bar and info panel for free.
     case avPlayer
-    /// KSPlayer (FFmpeg). Plays raw MPEG-TS, mkv, AC3/DTS and most odd streams.
-    /// Only available when the app is built with project-ksplayer.yml.
+    /// KSPlayer (FFmpeg), used for live channels only for now: it plays the
+    /// raw MPEG-TS stream, which runs closer to the broadcast than HLS.
+    /// Movies and episodes stay on AVPlayer, which has resume and progress
+    /// saving. Only available when the app is built with project-ksplayer.yml.
     case ksPlayer
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .avPlayer: return "Apple (AVPlayer)"
-        case .ksPlayer: return "KSPlayer (FFmpeg)"
+        case .avPlayer: return "Apple player"
+        case .ksPlayer: return "KSPlayer for live channels"
         }
     }
 
     var detail: String {
         switch self {
         case .avPlayer:
-            return "Native player. Live channels are requested as HLS (.m3u8). Movies in mkv or with DTS audio may not play."
+            return "Apple's player for everything. Live channels are requested as HLS (.m3u8), which runs further behind the broadcast."
         case .ksPlayer:
-            return "FFmpeg-based. Live channels are requested as MPEG-TS for faster starts. Plays mkv and most audio formats."
+            return "Live channels play the raw stream (MPEG-TS) through KSPlayer, for less delay behind the broadcast. Its on-screen controls look different. Movies and episodes still use the Apple player, so resume and continue watching keep working."
         }
     }
 
@@ -103,8 +105,10 @@ enum PlayerEngineKind: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Always the Apple player. A build that includes KSPlayer offers it in
+    /// Settings but never switches to it by itself.
     static var defaultEngine: PlayerEngineKind {
-        KSPlayerSupport.isLinked ? .ksPlayer : .avPlayer
+        .avPlayer
     }
 }
 
@@ -127,8 +131,9 @@ struct PlayerView: View {
             Color.black
             if let errorMessage {
                 PlaybackErrorView(item: item, engine: engine, message: errorMessage) { dismiss() }
-            } else if engine == .ksPlayer && KSPlayerSupport.isLinked {
-                KSPlayerEngineView(item: item, userAgent: userAgent)
+            } else if engine == .ksPlayer && KSPlayerSupport.isLinked && item.isLive {
+                // Live only: KSPlayerEngineView has no resume or progress saving yet.
+                KSPlayerEngineView(item: item, userAgent: userAgent, settings: settings, errorMessage: $errorMessage)
             } else {
                 AVPlayerEngineView(
                     item: item,

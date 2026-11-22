@@ -21,7 +21,9 @@ on:
         default: false
 
 concurrency:
-  group: build-${{ github.ref }}
+  # The KSPlayer and AVPlayer builds of one ref are separate jobs, so a
+  # change can be checked both ways at once without one cancelling the other.
+  group: build-${{ github.ref }}-${{ inputs.ksplayer && 'ks' || 'av' }}
   cancel-in-progress: true
 
 permissions:
