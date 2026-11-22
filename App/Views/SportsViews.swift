@@ -101,10 +101,15 @@ struct GameRow: View {
             Text(team.shortName)
                 .font(.tvMeta.weight(.semibold))
                 .lineLimit(1)
+                .minimumScaleFactor(0.75)
             Spacer(minLength: 8)
             if game.state != .scheduled, let score = team.score {
+                // The score always gets its full width. A long team name
+                // gives way instead; otherwise the score collapses to "…".
                 Text(score)
                     .font(.system(size: 30, weight: .bold).monospacedDigit())
+                    .fixedSize()
+                    .layoutPriority(1)
             }
         }
     }
@@ -154,12 +159,16 @@ struct GameDetailPane: View {
     private var scoreboard: some View {
         ZStack {
             Theme.surface
-            HStack(spacing: 28) {
+            HStack(spacing: 20) {
                 side(game.away)
+                // The middle takes the width its scores need; the team
+                // names on either side shrink to make room.
                 center
+                    .fixedSize()
+                    .layoutPriority(1)
                 side(game.home)
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 24)
         }
         .aspectRatio(16.0 / 9.0, contentMode: .fit)
         .overlay(alignment: .topLeading) {
@@ -176,7 +185,7 @@ struct GameDetailPane: View {
 
     private func side(_ team: SportsTeam) -> some View {
         VStack(spacing: 14) {
-            TeamLogo(team: team, size: 150)
+            TeamLogo(team: team, size: 130)
             Text(team.shortName)
                 .font(.tvBody.weight(.semibold))
                 .foregroundStyle(Theme.text)
@@ -200,7 +209,7 @@ struct GameDetailPane: View {
             }
         } else {
             VStack(spacing: 10) {
-                HStack(spacing: 36) {
+                HStack(spacing: 30) {
                     score(game.away)
                     score(game.home)
                 }
@@ -212,7 +221,8 @@ struct GameDetailPane: View {
 
     private func score(_ team: SportsTeam) -> some View {
         Text(team.score ?? "0")
-            .font(.system(size: 104, weight: .bold).width(.condensed).monospacedDigit())
+            // Sized so two three-digit basketball scores fit between the logos.
+            .font(.system(size: 88, weight: .bold).width(.condensed).monospacedDigit())
             .foregroundStyle(Theme.text)
             .lineLimit(1)
     }
