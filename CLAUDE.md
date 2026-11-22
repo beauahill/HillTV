@@ -22,6 +22,8 @@ Anything that imports SwiftUI, UIKit, AVKit or Security can only be compiled in 
 
 ## Status when handed off
 
+Released as v0.2.0 (Nov 2026), the first version Beau called ready. Beau runs it on the Apple TV day to day. To cut the next release: bump `MARKETING_VERSION` in `project.yml`, merge to `main`, then push a `v*` tag on `main`; CI builds the IPA and attaches it to the GitHub release. Every push to `main` also publishes an automatic "Build N" prerelease.
+
 `HillTVCore`: Xtream client, lenient decoding, URL building with correct credential encoding, short EPG with base64 titles, series info in both dict and array shapes, VOD info (`get_vod_info`), M3U parser, `WatchHistory`, `SearchIndex`, `GuideWindow`, `EPGSchedule`, `CategoryGroup`, `CategoryVisibility`, `Scoreboard`, `GameMatcher`. 74 XCTest cases, passing in CI's Linux job.
 
 `App/` (AVPlayer build) compiles green in CI as of Nov 2026. First device test (Nov 2026, with the older fixed sidebar): installs and runs. Focus between sidebar and content worked, and so did long-press Add to Favorites.
@@ -111,6 +113,7 @@ Swift settings: Swift 6 compiler, Swift 5 language mode (`SWIFT_VERSION: 5.0`). 
 - Focus engine: everything interactive must be a `Button`, `NavigationLink` or have `.focusable()`. Test focus paths, not just looks.
 - Menu/Back button: confirm on device that it dismisses the full-screen player from both engines. If AVPlayerViewController swallows it, add `.onExitCommand` handling.
 - ATS is wide open (`NSAllowsArbitraryLoads`) because most panels are plain http. Fine for sideloading.
+- Installing with atvloadly can sit at 100% and never finish, and new icon or Top Shelf art can fail to appear. Both happened in Nov 2026 and both were fixed by restarting the Apple TV. Try that before suspecting the build.
 - App icon and Top Shelf images live in `App/Assets.xcassets/App Icon & Top Shelf Image.brandassets` and are named by `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml`. The icon is "Sunrise" (Beau's pick of four): three layers, sky at the back, a white sun with a play triangle, two blue hills in front. Don't edit the PNGs by hand; change `Tools/make_icon.py` and run it (needs Pillow, plus google-chrome and a network connection for the Top Shelf wordmark, which uses Inter). CI fails if the built app has no `Assets.car`, and prints the icon entries from Info.plist and the assets inside `Assets.car`. Beau prefers PNG artwork with solid, bold shapes. On the TV (Nov 2026): the icon shows and Beau likes it, and the Top Shelf banner shows correctly. The banner did not appear until the Apple TV was restarted, so after installing a build with new icon or Top Shelf art, restart the box before judging it. Not yet confirmed: the layers shifting when a thumb slides on the clickpad with the icon in focus (the effect follows touch, not tilting the remote). CI shows the built app contains "App Icon" as an `ImageStack` with all three layers, so check after a restart, compare with another app's icon, and check Reduce Motion is off before changing the art.
 
 ## Roadmap (rough priority)
