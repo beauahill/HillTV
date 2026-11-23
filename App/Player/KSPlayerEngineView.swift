@@ -38,6 +38,14 @@ struct KSPlayerEngineView: View {
         // Menu is handled inside KSVideoPlayerView: it hides the controls if
         // they are showing, and otherwise dismisses the cover.
         KSVideoPlayerView(coordinator: coordinator, url: item.url, options: makeOptions(), title: item.title, subtitleDataSource: nil)
+            // KSPlayer's screens are built for the system's own colors. The
+            // app's blue tint and text color are inherited by everything it
+            // presents, and its settings panel (Down on the remote) sits
+            // outside the white tint KSPlayer gives its control bar. So give
+            // the whole player that white tint, and clear the app's text
+            // color so focused rows can switch to dark text again.
+            .tint(.white)
+            .foregroundColor(nil)
             .onAppear {
                 // Without this a dead channel is a black screen with no message.
                 coordinator.onFinish = { _, error in
