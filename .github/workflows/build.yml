@@ -5,6 +5,11 @@ name: Build tvOS IPA
 #
 # Repo variables (Settings > Secrets and variables > Actions > Variables):
 #   USE_KSPLAYER=true          build every run with KSPlayer (FFmpeg)
+#
+# A version tag builds the IPA without KSPlayer. To add the KSPlayer IPA to
+# the same release, wait for that run to finish, then run this workflow by
+# hand on the tag with the KSPlayer box ticked:
+#   gh workflow run build.yml --ref v0.3.0-rc1 -f ksplayer=true
 #   PUBLISH_MAIN_BUILDS=false  stop publishing a prerelease for each push to main
 
 on:
@@ -137,6 +142,10 @@ jobs:
         with:
           files: dist/*.ipa
           generate_release_notes: true
+          # A hyphen in the tag (v0.3.0-rc1) marks a candidate: publish it as
+          # a prerelease and leave "Latest" on the last full release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
 
       # A prerelease per push to main means atvloadly can track this repo's
       # releases (with "include prereleases" on) and update the Apple TV by itself.
