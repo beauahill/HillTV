@@ -36,7 +36,7 @@ Push to `main` and the workflow runs core tests on Linux, then builds the app on
 
 Every release carries one IPA. This repo sets the variable `USE_KSPLAYER` to `true`, so the builds from `main` and from tags include KSPlayer and have `-ks` in the file name.
 
-A manual run from the Actions tab follows its KSPlayer checkbox exactly: ticked builds with KSPlayer, unticked builds with the Apple player only, whatever the variable says. KSPlayer builds take longer because they pull FFmpeg binaries, and the IPA is about 23 MB. In the app, KSPlayer is off until you pick "KSPlayer for live channels" under Settings > Player. It plays live channels as raw MPEG-TS, which runs closer to the broadcast than HLS. Movies and episodes stay on the Apple player.
+A manual run from the Actions tab follows its KSPlayer checkbox exactly: ticked builds with KSPlayer, unticked builds with the Apple player only, whatever the variable says. Manual runs only upload an artifact; they never publish a release. KSPlayer builds take longer because they pull FFmpeg binaries, and the IPA is about 23 MB. In the app, KSPlayer is off until you pick "KSPlayer for live channels" under Settings > Player. It plays live channels as raw MPEG-TS, which runs closer to the broadcast than HLS. Movies and episodes stay on the Apple player.
 
 Without the `USE_KSPLAYER` variable (a fork, say), pushes and tags build with the Apple player only.
 
@@ -77,6 +77,6 @@ Set your team under Signing & Capabilities, pick the Apple TV as the run destina
 
 HillTV is licensed under the GNU General Public License, version 3. See [LICENSE](LICENSE).
 
-That choice comes from KSPlayer. Its free build is GPL-3.0, so publishing an IPA that includes it means publishing the app under GPL-3.0 too (the alternative is buying KSPlayer's LGPL license). KSPlayer and FFmpeg are not in this repo. The KSPlayer build pulls them from [kingslay/KSPlayer](https://github.com/kingslay/KSPlayer) at the commit pinned in `project-ksplayer.yml`; their source and license terms are there.
+That choice comes from KSPlayer. Its free build is GPL-3.0, so publishing an IPA that includes it means publishing the app under GPL-3.0 too (the alternative is buying KSPlayer's LGPL license). KSPlayer and FFmpeg are not in this repo. The KSPlayer build pulls them from [kingslay/KSPlayer](https://github.com/kingslay/KSPlayer) at the commit pinned in `project-ksplayer.yml`. Its license terms are there. Its free version ships the player core as a prebuilt binary, with source only for its interface layer.
 
 IPTVnator (referenced in CLAUDE.md for porting ideas) is MIT, but its name and logo are not covered by that license.
