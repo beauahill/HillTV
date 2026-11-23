@@ -107,6 +107,12 @@ struct LiveTVView: View {
         }
     }
 
+    /// False while the sports channels are still loading or have not been
+    /// matched to the games yet.
+    private var channelsMatched: Bool {
+        !model.sportsChannels.isEmpty && scores.hasMatched
+    }
+
     /// Tunes straight in only when exactly one channel names both teams.
     /// Anything less sure asks first.
     private func open(_ game: SportsGame) {
@@ -186,7 +192,11 @@ struct LiveTVView: View {
 
                 Group {
                     if let game = detailGame {
-                        GameDetailPane(game: game, matches: scores.matches[game.id] ?? [])
+                        GameDetailPane(
+                            game: game,
+                            matches: scores.matches[game.id] ?? [],
+                            channelsLoaded: channelsMatched
+                        )
                     } else {
                         ChannelDetailPane(
                             stream: detailStream,
@@ -379,7 +389,7 @@ struct LiveTVView: View {
                 GameRow(
                     game: game,
                     matches: scores.matches[game.id] ?? [],
-                    channelsLoaded: !model.sportsChannels.isEmpty
+                    channelsLoaded: channelsMatched
                 )
             }
             .buttonStyle(TVRowButtonStyle(minHeight: 128))

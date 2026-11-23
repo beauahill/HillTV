@@ -262,6 +262,71 @@ final class GameMatcherTests: XCTestCase {
         XCTAssertEqual(all["g2"]?.map(\.stream.id), [2])
     }
 
+    /// The word index only narrows which channels are checked. On a large,
+    /// messy channel list it must find exactly what checking every channel finds.
+    func testNarrowedMatchingAgreesWithCheckingEveryChannel() throws {
+        let teams = [
+            ("Copper Basin", "Kings"), ("Granite Peaks", "Otters"), ("Prairie", "Hawks"), ("Harbor City", "Gulls"),
+            ("Tetons State", "Elk"), ("Basin Tech", "Miners"), ("Copper Basin", "Comets"), ("Ridgeline", "United"),
+        ]
+        let networks = ["ESPN", "NBA TV", "FOX", "Ridgeline Sports"]
+        var games: [SportsGame] = []
+        for (index, home) in teams.enumerated() {
+            let away = teams[(index + 3) % teams.count]
+            games.append(SportsGame(
+                id: "many-\(index)",
+                league: SportsLeague(sport: "hockey", slug: "test", name: "Test"),
+                start: Date(timeIntervalSince1970: base + Double(index) * 1800),
+                state: .scheduled,
+                statusText: "",
+                home: SportsTeam(displayName: "\(home.0) \(home.1)", shortName: home.1, location: home.0, nickname: home.1),
+                away: SportsTeam(displayName: "\(away.0) \(away.1)", shortName: away.1, location: away.0, nickname: away.1),
+                networks: [networks[index % networks.count]]
+            ))
+        }
+
+        // Names built from every pairing of the parts above, plus noise, so
+        // there are near misses of every kind: one team, two cities, a
+        // network with extra words, a word inside a longer word.
+        let parts = teams.flatMap { [$0.0, $0.1] } + networks + ["HD", "2", "News", "Vikings", "Radio", "US:", "Classic"]
+        var channels: [LiveStream] = []
+        for (a, first) in parts.enumerated() {
+            for (b, second) in parts.enumerated() {
+                channels.append(LiveStream(id: a * 100 + b, name: "\(first) vs \(second)"))
+                channels.append(LiveStream(id: 10_000 + a * 100 + b, name: "\(first) \(second)"))
+            }
+        }
+        channels.append(LiveStream(id: 5, name: "Repeated stream ID, dropped"))
+        let schedules = [
+            20_001: try schedule("Hockey: Granite Peaks Otters at Copper Basin Kings", startingIn: -600),
+            20_002: try schedule("Hockey: Granite Peaks Otters at Copper Basin Kings", startingIn: -86_400),
+            20_003: try schedule("Otters at Elk", startingIn: 3 * 1800),
+        ]
+        channels += [20_001, 20_002, 20_003].map { LiveStream(id: $0, name: "Guide Only \($0)") }
+
+        let index = GameMatcher.ChannelIndex(channels, schedules: schedules)
+        var strong = 0
+        var weak = 0
+        for game in games {
+            let narrowed = GameMatcher.matches(for: game, in: index)
+            XCTAssertEqual(narrowed, GameMatcher.sweep(for: game, in: index), game.id)
+            strong += narrowed.filter { $0.strength == .teams }.count
+            weak += narrowed.filter { $0.strength == .network }.count
+        }
+        // Not an empty comparison: both kinds of match turn up, and far
+        // fewer than the channels there are.
+        XCTAssertGreaterThan(strong, 8)
+        XCTAssertGreaterThan(weak, 4)
+        XCTAssertLessThan(strong + weak, channels.count)
+        // Found through guide text alone: Otters at Elk is game 1, and game 6
+        // (Otters at the Comets of Copper Basin) fits the first listing by
+        // one team name plus the other's city. The same listing a day
+        // earlier is outside the game's window.
+        XCTAssertTrue(GameMatcher.matches(for: games[1], in: index).contains { $0.stream.id == 20_003 })
+        XCTAssertTrue(GameMatcher.matches(for: games[6], in: index).contains { $0.stream.id == 20_001 })
+        XCTAssertFalse(GameMatcher.matches(for: games[6], in: index).contains { $0.stream.id == 20_002 })
+    }
+
     func testNoChannelsNoMatches() {
         XCTAssertEqual(GameMatcher.matches(for: game, channels: []), [])
     }

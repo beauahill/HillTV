@@ -105,6 +105,8 @@ struct MainShell: View {
     @State private var epg: EPGStore
     @State private var scores: ScoreboardStore
     @FocusState private var sidebarFocus: AppSection?
+    /// Briefly true to push focus out of the rail. See `leaveRail()`.
+    @State private var railLocked = false
 
     init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
@@ -124,6 +126,10 @@ struct MainShell: View {
             Sidebar(selection: railSelection, focus: $sidebarFocus, expanded: sidebarFocus != nil)
                 .frame(width: Theme.railWidth, alignment: .leading)
                 .focusSection()
+                // Menu on the rail closes the rail and goes back to the
+                // content, instead of quitting the app.
+                .onExitCommand(perform: leaveRail)
+                .disabled(railLocked)
                 // The expanded rail draws over the content without moving it.
                 .zIndex(1)
 
@@ -181,6 +187,20 @@ struct MainShell: View {
             Color.clear
         } else {
             content
+        }
+    }
+
+    /// Sends focus from the rail to the content. Nothing in SwiftUI moves
+    /// focus into a section whose views it doesn't know, so the rail is made
+    /// unfocusable for a moment and the focus engine picks the content, the
+    /// only place left. If the content has nothing to focus (an empty or
+    /// loading section), focus comes back to the rail when it unlocks.
+    private func leaveRail() {
+        guard !railLocked else { return }
+        railLocked = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            railLocked = false
         }
     }
 

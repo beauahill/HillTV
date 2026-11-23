@@ -37,20 +37,24 @@ public enum GameMatcher {
         channels: [LiveStream],
         schedules: [Int: EPGSchedule] = [:]
     ) -> [GameChannelMatch] {
-        matches(for: game, in: index(channels, schedules: schedules))
+        matches(for: game, in: ChannelIndex(channels, schedules: schedules))
     }
 
     /// The same for many games at once, keyed by game ID. Channel names and
     /// guide titles are folded once instead of once per game.
+    ///
+    /// Stops early if the calling task is cancelled, with only the games
+    /// done so far. A caller that cancels must not use the result.
     public static func matches(
         forAll games: [SportsGame],
         channels: [LiveStream],
         schedules: [Int: EPGSchedule] = [:]
     ) -> [String: [GameChannelMatch]] {
-        let indexed = index(channels, schedules: schedules)
+        let index = ChannelIndex(channels, schedules: schedules)
         var result: [String: [GameChannelMatch]] = [:]
         for game in games where result[game.id] == nil {
-            result[game.id] = matches(for: game, in: indexed)
+            if Task.isCancelled { break }
+            result[game.id] = matches(for: game, in: index)
         }
         return result
     }
@@ -68,40 +72,103 @@ public enum GameMatcher {
         let listings: [Listing]
     }
 
-    /// Folds every channel's name and guide text. Repeated stream IDs are dropped.
-    static func index(_ channels: [LiveStream], schedules: [Int: EPGSchedule]) -> [IndexedChannel] {
-        var seen = Set<Int>()
-        return channels.compactMap { channel in
-            guard seen.insert(channel.id).inserted else { return nil }
-            let listings = (schedules[channel.id]?.entries ?? []).map { entry in
-                IndexedChannel.Listing(
-                    start: entry.start,
-                    end: entry.end,
-                    text: fold(entry.title + " " + (entry.summary ?? ""))
-                )
+    /// Every channel with its text folded, plus a word index over them.
+    ///
+    /// A sports section can hold thousands of channels and a busy day a
+    /// hundred games or more. Checking every game against every channel is
+    /// then hundreds of thousands of text searches, which kept an Apple TV
+    /// busy for a long time. The word index narrows each game to the few
+    /// channels that mention one of its teams or networks at all.
+    struct ChannelIndex {
+        /// Provider order. Repeated stream IDs are dropped.
+        let channels: [IndexedChannel]
+        /// For each word: where in `channels` it appears, in a name or in
+        /// guide text. Positions ascend.
+        private let positions: [String: [Int]]
+
+        init(_ streams: [LiveStream], schedules: [Int: EPGSchedule]) {
+            var seen = Set<Int>()
+            var channels: [IndexedChannel] = []
+            var positions: [String: [Int]] = [:]
+            for stream in streams where seen.insert(stream.id).inserted {
+                let listings = (schedules[stream.id]?.entries ?? []).map { entry in
+                    IndexedChannel.Listing(
+                        start: entry.start,
+                        end: entry.end,
+                        text: GameMatcher.fold(entry.title + " " + (entry.summary ?? ""))
+                    )
+                }
+                let channel = IndexedChannel(stream: stream, name: GameMatcher.fold(stream.name), listings: listings)
+                var words = Set(channel.name.split(separator: " "))
+                for listing in listings {
+                    words.formUnion(listing.text.split(separator: " "))
+                }
+                for word in words {
+                    positions[String(word), default: []].append(channels.count)
+                }
+                channels.append(channel)
             }
-            return IndexedChannel(stream: channel, name: fold(channel.name), listings: listings)
+            self.channels = channels
+            self.positions = positions
+        }
+
+        /// Channels that have the first word of at least one phrase, in
+        /// provider order. A channel can't contain a phrase without it.
+        func candidates(for phrases: [String]) -> [IndexedChannel] {
+            var found = Set<Int>()
+            for phrase in phrases {
+                guard let first = phrase.split(separator: " ").first else { continue }
+                found.formUnion(positions[String(first)] ?? [])
+            }
+            return found.sorted().map { channels[$0] }
         }
     }
 
-    static func matches(for game: SportsGame, in channels: [IndexedChannel]) -> [GameChannelMatch] {
-        let home = TeamPhrases(game.home)
-        let away = TeamPhrases(game.away)
-        let networks = game.networks.map { fold($0) }.filter { !$0.isEmpty }
+    /// What to look for in a channel's text for one game.
+    struct GameTerms {
+        let home: TeamPhrases
+        let away: TeamPhrases
+        let networks: [String]
         // Listings that overlap the game, with some slack for pregame and overtime.
-        let windowStart = game.start.addingTimeInterval(-30 * 60)
-        let windowEnd = game.start.addingTimeInterval(4 * 3600)
+        let windowStart: Date
+        let windowEnd: Date
 
+        init(_ game: SportsGame) {
+            home = TeamPhrases(game.home)
+            away = TeamPhrases(game.away)
+            networks = game.networks.map { GameMatcher.fold($0) }.filter { !$0.isEmpty }
+            windowStart = game.start.addingTimeInterval(-30 * 60)
+            windowEnd = game.start.addingTimeInterval(4 * 3600)
+        }
+
+        /// A match needs one of these somewhere: a team named outright (a
+        /// city alone is never enough) or the network's name.
+        var required: [String] { home.names + away.names + networks }
+    }
+
+    static func matches(for game: SportsGame, in index: ChannelIndex) -> [GameChannelMatch] {
+        let terms = GameTerms(game)
+        return matches(terms, among: index.candidates(for: terms.required))
+    }
+
+    /// Checks every channel. `matches(for:in:)` must give the same answer;
+    /// the tests hold it to this.
+    static func sweep(for game: SportsGame, in index: ChannelIndex) -> [GameChannelMatch] {
+        matches(GameTerms(game), among: index.channels)
+    }
+
+    private static func matches(_ terms: GameTerms, among channels: [IndexedChannel]) -> [GameChannelMatch] {
         var strong: [GameChannelMatch] = []
         var weak: [GameChannelMatch] = []
 
         for channel in channels {
             let inGuide = channel.listings.contains { listing in
-                listing.end > windowStart && listing.start < windowEnd && names(bothOf: home, away, in: listing.text)
+                listing.end > terms.windowStart && listing.start < terms.windowEnd
+                    && names(bothOf: terms.home, terms.away, in: listing.text)
             }
-            if inGuide || names(bothOf: home, away, in: channel.name) {
+            if inGuide || names(bothOf: terms.home, terms.away, in: channel.name) {
                 strong.append(GameChannelMatch(stream: channel.stream, strength: .teams))
-            } else if networks.contains(where: { isNetwork($0, channelName: channel.name) }) {
+            } else if terms.networks.contains(where: { isNetwork($0, channelName: channel.name) }) {
                 weak.append(GameChannelMatch(stream: channel.stream, strength: .network))
             }
         }

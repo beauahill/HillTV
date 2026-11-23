@@ -15,8 +15,15 @@ final class ScoreboardStore {
     /// Channels that may carry each game, by game ID. See `GameMatcher`.
     private(set) var matches: [String: [GameChannelMatch]] = [:]
     private(set) var hasLoaded = false
+    /// True once channels have been matched to games at least once. Until
+    /// then an empty `matches` means "still looking", not "nothing found".
+    private(set) var hasMatched = false
 
     private var byLeague: [String: [SportsGame]] = [:]
+    /// The matching run in progress, and a count that tells a run it has
+    /// been replaced. Only the newest run may publish its result.
+    private var matching: Task<[String: [GameChannelMatch]], Never>?
+    private var matchRun = 0
     private let client: ScoreboardClient
 
     init(userAgent: String) {
@@ -46,16 +53,26 @@ final class ScoreboardStore {
         hasLoaded = true
     }
 
-    /// Works out the channels for `games` off the main thread.
+    /// Works out the channels for `games` off the main thread. A new call
+    /// replaces one still running, so two never work at the same time.
     func rematch(_ games: [SportsGame], channels: [LiveStream], schedules: [Int: EPGSchedule]) async {
+        matchRun += 1
+        let run = matchRun
+        matching?.cancel()
+        matching = nil
         guard !games.isEmpty, !channels.isEmpty else {
             matches = [:]
             return
         }
-        let result = await Task.detached(priority: .utility) {
+        let work = Task.detached(priority: .utility) {
             GameMatcher.matches(forAll: games, channels: channels, schedules: schedules)
-        }.value
-        if Task.isCancelled { return }
+        }
+        matching = work
+        let result = await work.value
+        // Replaced while it ran: the newer run publishes instead.
+        guard run == matchRun else { return }
+        matching = nil
         matches = result
+        hasMatched = true
     }
 }

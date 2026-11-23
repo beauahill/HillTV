@@ -75,7 +75,7 @@ struct GameStatusLabel: View {
 struct GameRow: View {
     let game: SportsGame
     let matches: [GameChannelMatch]
-    /// False while the sports channels are still being fetched.
+    /// False while the sports channels are still being fetched or matched.
     let channelsLoaded: Bool
 
     var body: some View {
@@ -133,6 +133,8 @@ struct GameRow: View {
 struct GameDetailPane: View {
     let game: SportsGame
     let matches: [GameChannelMatch]
+    /// False while the sports channels are still being fetched or matched.
+    let channelsLoaded: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -233,7 +235,7 @@ struct GameDetailPane: View {
         VStack(alignment: .leading, spacing: 10) {
             Eyebrow(text: "Where to watch")
             if matches.isEmpty {
-                Text("No matching channel in your Sports categories.")
+                Text(channelsLoaded ? "No matching channel in your Sports categories." : "Finding channels")
                     .font(.tvMeta)
                     .foregroundStyle(Theme.muted)
             } else {

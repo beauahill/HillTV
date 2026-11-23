@@ -4,12 +4,10 @@ name: Build tvOS IPA
 # Sideloadly) signs it with your Apple ID at install time.
 #
 # Repo variables (Settings > Secrets and variables > Actions > Variables):
-#   USE_KSPLAYER=true          build every run with KSPlayer (FFmpeg)
+#   USE_KSPLAYER=true          pushes and tags build with KSPlayer (FFmpeg)
 #
-# A version tag builds the IPA without KSPlayer. To add the KSPlayer IPA to
-# the same release, wait for that run to finish, then run this workflow by
-# hand on the tag with the KSPlayer box ticked:
-#   gh workflow run build.yml --ref v0.3.0-rc1 -f ksplayer=true
+# Keep it to one IPA per release. atvloadly follows a repo's releases and
+# picks the IPA by file name; two IPAs in one release make that ambiguous.
 #   PUBLISH_MAIN_BUILDS=false  stop publishing a prerelease for each push to main
 
 on:
@@ -35,7 +33,9 @@ permissions:
   contents: write
 
 env:
-  USE_KSPLAYER: ${{ (inputs.ksplayer && 'true') || vars.USE_KSPLAYER || 'false' }}
+  # A manual run follows its checkbox exactly, so an Apple-player-only build
+  # can still be made by hand. Pushes and tags follow the repo variable.
+  USE_KSPLAYER: ${{ github.event_name == 'workflow_dispatch' && (inputs.ksplayer && 'true' || 'false') || vars.USE_KSPLAYER || 'false' }}
   SCHEME: HillTV
 
 jobs:
