@@ -447,7 +447,7 @@ struct LiveTVView: View {
         let current = epg.schedule(for: stream.id)?.current(at: Date())
         let item = PlayableItem(
             id: "live-\(stream.id)",
-            title: stream.name,
+            title: stream.displayName.title,
             subtitle: current?.title,
             url: model.client.liveURL(streamID: stream.id, format: app.liveFormat),
             isLive: true
@@ -488,9 +488,7 @@ private struct LiveChannelRow: View {
             ChannelLogo(url: stream.iconURL)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 10) {
-                    Text(stream.name)
-                        .font(.tvMeta.weight(.semibold))
-                        .lineLimit(1)
+                    ChannelNameLabel(name: stream.displayName, font: .tvMeta.weight(.semibold), layout: .inline, inFocusRow: true)
                     if isFavorite {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 18))
@@ -555,10 +553,8 @@ private struct ChannelDetailPane: View {
                             .font(.tvHeading.monospacedDigit())
                             .foregroundStyle(Theme.muted)
                     }
-                    Text(stream.name)
-                        .font(.tvSubtitle)
+                    ChannelNameLabel(name: stream.displayName, font: .tvSubtitle, detailFont: .tvMeta, layout: .inline)
                         .foregroundStyle(Theme.text)
-                        .lineLimit(1)
                     if stream.hasArchive {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 26))

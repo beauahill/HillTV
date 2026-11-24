@@ -34,6 +34,15 @@ final class GuideModel {
     private static let entriesPerChannel = 12
     private let visibility: CategoryVisibilityStore
 
+    /// Stands in for a category ID when the Guide shows favorite channels.
+    static let favoritesID = "hilltv.favorites"
+
+    /// True when the Guide lists favorites. The view reads those channels
+    /// from `FavoritesStore`, so adding or removing one shows at once.
+    var showsFavorites: Bool {
+        selectedCategoryID == Self.favoritesID
+    }
+
     init(client: XtreamClient, visibility: CategoryVisibilityStore) {
         self.client = client
         self.visibility = visibility
@@ -50,8 +59,11 @@ final class GuideModel {
 
     // MARK: Categories and channels (same pattern as Live TV)
 
-    func loadCategories() async {
+    func loadCategories(startWithFavorites: Bool) async {
         refreshWindowIfNeeded()
+        if selectedCategoryID == nil, startWithFavorites {
+            await select(Self.favoritesID)
+        }
         if !categories.isEmpty {
             await reconcileSelection()
             return
@@ -69,17 +81,17 @@ final class GuideModel {
 
     /// Keeps the selection on a category that is still shown, since categories
     /// can be hidden in Settings between visits. Also refetches after a
-    /// cancelled first load.
+    /// cancelled first load. Favorites is never hidden, and it is where the
+    /// Guide goes when every category is.
     private func reconcileSelection() async {
+        if showsFavorites { return }
         let visible = visibleCategories
         if let id = selectedCategoryID, visible.contains(where: { $0.id == id }) {
             if channelState == .idle { await select(id) }
         } else if let first = visible.first {
             await select(first.id)
         } else {
-            selectedCategoryID = nil
-            channels = []
-            channelState = .idle
+            await select(Self.favoritesID)
         }
     }
 
@@ -95,6 +107,12 @@ final class GuideModel {
     func select(_ categoryID: String) async {
         if categoryID == selectedCategoryID, channelState == .loaded || channelState == .loading { return }
         selectedCategoryID = categoryID
+        if categoryID == Self.favoritesID {
+            // Nothing to fetch: the view lists the channels from FavoritesStore.
+            channels = []
+            channelState = .loaded
+            return
+        }
         if let cached = channelCache[categoryID] {
             channels = cached
             channelState = cached.isEmpty ? .empty : .loaded
@@ -210,7 +228,7 @@ struct GuideView: View {
         HStack(alignment: .top, spacing: 24) {
             CategoryColumn(
                 title: "Guide",
-                categories: model.visibleCategories,
+                categories: [favoritesEntry] + model.visibleCategories,
                 selectedID: model.selectedCategoryID,
                 focus: $focusedCategory
             ) { category in
@@ -218,10 +236,7 @@ struct GuideView: View {
             }
             .frame(width: 320)
             .overlay {
-                LoadStateView(
-                    state: model.allHidden ? .empty : model.categoryState,
-                    emptyText: model.allHidden ? allCategoriesHiddenText : "No live categories"
-                )
+                LoadStateView(state: model.categoryState, emptyText: "No live categories")
             }
 
             GeometryReader { geo in
@@ -230,7 +245,7 @@ struct GuideView: View {
                     timeHeader(timeline: timeline)
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 6) {
-                            ForEach(model.channels) { stream in
+                            ForEach(rows) { stream in
                                 row(stream, timeline: timeline)
                                     .onAppear { model.rowAppeared(stream.id) }
                                     .onDisappear { model.rowDisappeared(stream.id) }
@@ -244,12 +259,12 @@ struct GuideView: View {
                 }
             }
             .overlay {
-                LoadStateView(state: model.channelState, emptyText: "No channels in this category") {
+                LoadStateView(state: channelState, emptyText: emptyText) {
                     model.retryChannels()
                 }
             }
         }
-        .task { await model.loadCategories() }
+        .task { await model.loadCategories(startWithFavorites: !app.favorites.channels.isEmpty) }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
@@ -260,6 +275,25 @@ struct GuideView: View {
             if let newValue { model.scheduleSelect(newValue) }
         }
         .playerCover(item: $nowPlaying)
+    }
+
+    /// "Favorites" sits above the provider's categories and is never hidden.
+    private var favoritesEntry: XtreamCategory {
+        XtreamCategory(id: GuideModel.favoritesID, name: "Favorites")
+    }
+
+    private var rows: [LiveStream] {
+        model.showsFavorites ? app.favorites.channels : model.channels
+    }
+
+    private var channelState: LoadState {
+        guard model.showsFavorites else { return model.channelState }
+        return app.favorites.channels.isEmpty ? .empty : .loaded
+    }
+
+    private var emptyText: String {
+        guard model.showsFavorites else { return "No channels in this category" }
+        return model.allHidden ? allCategoriesHiddenText : "No favorites yet. Hold Select on a channel to add it."
     }
 
     private func timeHeader(timeline: CGFloat) -> some View {
@@ -288,10 +322,13 @@ struct GuideView: View {
         HStack(spacing: 0) {
             HStack(spacing: 14) {
                 ChannelLogo(url: stream.iconURL, size: CGSize(width: 80, height: 52))
-                Text(stream.name)
-                    .font(.tvSmall.weight(.semibold))
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(2)
+                ChannelNameLabel(
+                    name: stream.displayName,
+                    font: .tvSmall.weight(.semibold),
+                    detailFont: .system(size: 18),
+                    titleLines: 2
+                )
+                .foregroundStyle(Theme.text)
             }
             .frame(width: channelColumn - 12, alignment: .leading)
             .padding(.trailing, 12)
@@ -323,7 +360,7 @@ struct GuideView: View {
         let onAir = model.listings[stream.id]?.first { $0.isOnAir() }
         nowPlaying = PlayableItem(
             id: "live-\(stream.id)",
-            title: stream.name,
+            title: stream.displayName.title,
             subtitle: onAir?.title ?? entry?.title,
             url: model.client.liveURL(streamID: stream.id, format: app.liveFormat),
             isLive: true

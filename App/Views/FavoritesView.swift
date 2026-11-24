@@ -32,7 +32,7 @@ struct FavoritesView: View {
                             Button {
                                 nowPlaying = PlayableItem(
                                     id: "live-\(stream.id)",
-                                    title: stream.name,
+                                    title: stream.displayName.title,
                                     url: client.liveURL(streamID: stream.id, format: app.liveFormat),
                                     isLive: true
                                 )

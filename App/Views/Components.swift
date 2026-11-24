@@ -34,6 +34,70 @@ struct CategoryColumn: View {
     }
 }
 
+/// A channel's name as the app shows it: the name itself, with the country
+/// and quality labels the provider wrapped around it shown small and muted.
+/// The labels go underneath, or after the name where a row already has a
+/// second line.
+///
+/// The name takes the color of its surroundings. Set `inFocusRow` inside rows
+/// that fill blue on focus, so the muted labels flip to dark with the rest.
+struct ChannelNameLabel: View {
+    enum Layout {
+        case stacked
+        case inline
+    }
+
+    let name: ChannelName
+    var font: Font = .tvBody
+    var detailFont: Font = .tvSmall
+    var layout: Layout = .stacked
+    var titleLines = 1
+    var inFocusRow = false
+    /// Stacked only: keep the second line's height when there are no labels.
+    var keepsDetailLine = false
+
+    var body: some View {
+        switch layout {
+        case .stacked:
+            VStack(alignment: .leading, spacing: 2) {
+                title
+                if let detail = name.detail {
+                    self.detail(detail)
+                } else if keepsDetailLine {
+                    self.detail(" ")
+                }
+            }
+        case .inline:
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                title
+                if let detail = name.detail {
+                    // The labels are what tells two feeds apart, so a long name gives way first.
+                    self.detail(detail)
+                        .fixedSize()
+                }
+            }
+        }
+    }
+
+    private var title: some View {
+        Text(name.title)
+            .font(font)
+            .lineLimit(titleLines)
+    }
+
+    @ViewBuilder
+    private func detail(_ text: String) -> some View {
+        let label = Text(text)
+            .font(detailFont)
+            .lineLimit(1)
+        if inFocusRow {
+            label.tvSecondary()
+        } else {
+            label.foregroundStyle(Theme.muted)
+        }
+    }
+}
+
 /// Channel logo on a dark tile, with a fallback. Logos are frequently dead links.
 struct ChannelLogo: View {
     let url: URL?
@@ -68,8 +132,7 @@ struct ChannelRow: View {
                     .frame(width: 64, alignment: .trailing)
             }
             ChannelLogo(url: stream.iconURL)
-            Text(stream.name)
-                .lineLimit(1)
+            ChannelNameLabel(name: stream.displayName, inFocusRow: true)
             Spacer(minLength: 12)
             if stream.hasArchive {
                 Image(systemName: "clock.arrow.circlepath")
@@ -159,10 +222,9 @@ struct ChannelTile: View {
                     }
                 }
                 .scaleEffect(isFocused ? Theme.focusScale : 1)
-            Text(stream.name)
-                .font(.tvSmall.weight(.semibold))
+            // The second line is always there, so tiles in a rail stay the same height.
+            ChannelNameLabel(name: stream.displayName, font: .tvSmall.weight(.semibold), keepsDetailLine: true)
                 .foregroundStyle(Theme.text)
-                .lineLimit(1)
                 .frame(width: 260, alignment: .leading)
         }
         .animation(Theme.focusAnimation, value: isFocused)
@@ -183,10 +245,8 @@ struct LiveNowCard: View {
         HStack(spacing: 20) {
             ChannelLogo(url: stream.iconURL, size: CGSize(width: 110, height: 74))
             VStack(alignment: .leading, spacing: 8) {
-                Text(stream.name)
-                    .font(.tvMeta.weight(.semibold))
+                ChannelNameLabel(name: stream.displayName, font: .tvMeta.weight(.semibold), layout: .inline)
                     .foregroundStyle(Theme.text)
-                    .lineLimit(1)
                 HStack(spacing: 8) {
                     if current != nil {
                         Circle()
