@@ -42,6 +42,9 @@ struct FavoritesView: View {
                             }
                             .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
                             .contextMenu {
+                                Button(app.multiview.tiles.contains(stream.id) ? "Open Multiview" : "Add to Multiview") {
+                                    app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
+                                }
                                 if app.favorites.channels.count > 1 {
                                     Button("Move") {
                                         ChannelMove.begin(

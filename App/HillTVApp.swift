@@ -161,6 +161,24 @@ struct MainShell: View {
             // Passed explicitly rather than relying on the environment reaching into a cover.
             .environment(app)
         }
+        .fullScreenCover(isPresented: multiviewShowing) {
+            MultiviewView(client: client, epg: epg)
+                .foregroundStyle(Theme.text)
+                .tint(Theme.accent)
+                .preferredColorScheme(.dark)
+                .environment(app)
+        }
+    }
+
+    /// The multiview is opened from hold-Select menus all over the app, so
+    /// its switch lives on `AppModel` and the cover lives here. The section
+    /// behind stays up, keeping its place for adding another channel; Live TV
+    /// stops its preview and scores while the multiview shows.
+    private var multiviewShowing: Binding<Bool> {
+        Binding(
+            get: { app.multiview.isShowing },
+            set: { app.multiview.isShowing = $0 }
+        )
     }
 
     /// Picking Search in the rail opens the search page and leaves the

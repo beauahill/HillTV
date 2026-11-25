@@ -96,7 +96,7 @@ struct LiveTVView: View {
 
     /// The scores feed is only polled while games can be seen.
     private var gamesActive: Bool {
-        model.showsGames && nowPlaying == nil && picking == nil && scenePhase == .active
+        model.showsGames && nowPlaying == nil && picking == nil && !app.multiview.isShowing && scenePhase == .active
     }
 
     /// Restarted by `.task(id:)` when `gamesActive` changes, which cancels the previous run.
@@ -139,7 +139,8 @@ struct LiveTVView: View {
     /// not behind the player or another full-screen list, not in the background.
     private var previewAllowed: Bool {
         app.previewMode != .off && app.previewSupported
-            && nowPlaying == nil && !showingCategories && picking == nil && moving == nil && scenePhase == .active
+            && nowPlaying == nil && !showingCategories && picking == nil && moving == nil
+            && !app.multiview.isShowing && scenePhase == .active
     }
 
     private struct PreviewKey: Hashable {
@@ -382,6 +383,9 @@ struct LiveTVView: View {
                     .contextMenu {
                         Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
                             app.favorites.toggle(stream)
+                        }
+                        Button(app.multiview.tiles.contains(stream.id) ? "Open Multiview" : "Add to Multiview") {
+                            app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
                         }
                         if canReorder {
                             Button("Move") {

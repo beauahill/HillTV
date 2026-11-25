@@ -38,6 +38,7 @@ final class AppModel {
     let watchHistory = WatchHistoryStore()
     let categoryVisibility = CategoryVisibilityStore()
     let channelOrder = ChannelOrderStore()
+    let multiview = MultiviewStore()
 
     static let userAgent: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -75,6 +76,12 @@ final class AppModel {
     /// False when the panel allows one connection or doesn't say.
     var hasSpareConnection: Bool {
         (authInfo?.user.maxConnections ?? 1) >= 2
+    }
+
+    /// How many channels the multiview may play together: the account's
+    /// connection count, four at most.
+    var multiviewLimit: Int {
+        Multiview.tileLimit(maxConnections: authInfo?.user.maxConnections)
     }
 
     /// The preview is always AVPlayer, which needs HLS.
@@ -148,6 +155,7 @@ final class AppModel {
         categoryVisibility.deactivate()
         // The same goes for the order given to channel lists.
         channelOrder.deactivate()
+        multiview.clear()
         client = nil
         authInfo = nil
         accountWarning = nil

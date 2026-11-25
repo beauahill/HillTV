@@ -149,6 +149,11 @@ struct HomeView: View {
                                     LiveNowCard(stream: stream, epg: epg)
                                 }
                                 .buttonStyle(TVCardButtonStyle())
+                                .contextMenu {
+                                    Button(app.multiview.tiles.contains(stream.id) ? "Open Multiview" : "Add to Multiview") {
+                                        app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
+                                    }
+                                }
                                 .onAppear { epg.rowAppeared(stream.id) }
                                 .onDisappear { epg.rowDisappeared(stream.id) }
                             }

@@ -400,6 +400,9 @@ struct GuideView: View {
                         Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
                             app.favorites.toggle(stream)
                         }
+                        Button(app.multiview.tiles.contains(stream.id) ? "Open Multiview" : "Add to Multiview") {
+                            app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
+                        }
                         if rows.count > 1 {
                             Button("Move") {
                                 ChannelMove.begin(ChannelMove(listTitle: listTitle, channels: rows, stream: stream), into: $moving)
