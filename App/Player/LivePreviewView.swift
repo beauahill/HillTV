@@ -198,7 +198,9 @@ struct LivePreviewView: UIViewRepresentable {
         func stop() {
             statusObservation?.invalidate()
             statusObservation = nil
-            itemObservers.forEach(NotificationCenter.default.removeObserver)
+            for observer in itemObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
             itemObservers = []
             stallCheck?.cancel()
             stallCheck = nil

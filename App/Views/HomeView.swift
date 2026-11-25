@@ -341,6 +341,10 @@ struct HeroArt: View {
                         .opacity(0.8)
                 }
             }
+            // A new image view per address. Without this the last picture
+            // stays up when the address changes to none, as it does when the
+            // billboard moves from a movie to a live channel.
+            .id(url)
             LinearGradient(
                 stops: [
                     .init(color: Theme.background, location: 0),
