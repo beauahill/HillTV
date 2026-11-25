@@ -31,7 +31,7 @@ struct KSPlayerEngineView: View {
 
     /// Ours rather than one KSPlayer makes, so playback errors can be heard.
     @State private var coordinator = KSVideoPlayer.Coordinator()
-    /// A reference, so KSPlayer's many position reports don't redraw the player.
+    /// A reference, so KSPlayer's position reports don't redraw the player.
     @State private var progress = ProgressBox()
 
     var body: some View {
@@ -68,13 +68,19 @@ struct KSPlayerEngineView: View {
             }
     }
 
-    /// Movies and episodes only. KSPlayer reports its position many times a
-    /// second; `ProgressTracker` saves one in every ten seconds and skips
-    /// the reports from before a resume point is reached.
+    /// Movies and episodes only. KSPlayer reports its position as it plays,
+    /// more often than is worth saving; `ProgressTracker` saves once per ten
+    /// seconds of film and skips the reports from before a resume point is
+    /// reached.
     private func trackProgress() {
-        guard let onProgress, !item.isLive, progress.tracker == nil else { return }
+        guard let onProgress, !item.isLive else { return }
         let box = progress
-        box.tracker = ProgressTracker(resumeFrom: item.startAt)
+        // One tracker for the life of the player, but the callback is set on
+        // every appearance, like onFinish: KSPlayer clears both when its
+        // view is taken down.
+        if box.tracker == nil {
+            box.tracker = ProgressTracker(resumeFrom: item.startAt)
+        }
         coordinator.onPlay = { position, duration in
             guard let report = box.tracker?.report(position: position, duration: duration) else { return }
             // KSPlayer calls this from its main-actor delegate.

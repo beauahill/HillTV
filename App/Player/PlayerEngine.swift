@@ -145,8 +145,9 @@ struct PlayerView: View {
     /// A movie or episode Apple's player can't start gets one try in
     /// KSPlayer before the error screen. The file type in the URL comes from
     /// the panel and can be wrong.
-    private var canFallBack: Bool {
-        KSPlayerSupport.isLinked && !item.isLive
+    private var fallBack: (@MainActor (String) -> Void)? {
+        guard KSPlayerSupport.isLinked, !item.isLive else { return nil }
+        return { _ in fellBack = true }
     }
 
     var body: some View {
@@ -169,7 +170,7 @@ struct PlayerView: View {
                     settings: settings,
                     errorMessage: $errorMessage,
                     onProgress: onProgress,
-                    onFailedToStart: canFallBack ? { _ in fellBack = true } : nil
+                    onFailedToStart: fallBack
                 )
             }
         }
