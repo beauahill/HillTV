@@ -495,7 +495,7 @@ struct HomeView: View {
 
     private func movieRail(_ rail: HomeModel.Rail<VODStream>) -> some View {
         let railID = "movies-\(rail.id)"
-        return Rail(title: "Movies · \(rail.category.name)") {
+        return Rail(title: "Movies · \(rail.category.displayName.line)") {
             ForEach(rail.items) { movie in
                 Button {
                     model.path.append(movie)
@@ -510,7 +510,7 @@ struct HomeView: View {
 
     private func seriesRail(_ rail: HomeModel.Rail<SeriesItem>) -> some View {
         let railID = "series-\(rail.id)"
-        return Rail(title: "Series · \(rail.category.name)") {
+        return Rail(title: "Series · \(rail.category.displayName.line)") {
             ForEach(rail.items) { item in
                 Button {
                     model.path.append(item)

@@ -21,14 +21,39 @@ struct CategoryColumn: View {
                         Button {
                             onSelect(category)
                         } label: {
-                            Text(category.name)
-                                .lineLimit(1)
+                            CategoryNameLabel(name: category.displayName)
                         }
                         .buttonStyle(TVRowButtonStyle(isSelected: category.id == selectedID, minHeight: 64, font: .tvMeta))
                         .focused(focus, equals: category.id)
                     }
                 }
                 .padding(12)
+            }
+        }
+    }
+}
+
+/// A category's name as the app shows it: the name, then the labels the
+/// provider put around it ("EN", "MULTISUB"), smaller and fainter. Two
+/// categories can differ only by a label, so the labels always show.
+///
+/// The labels take the name's color at lower strength, so they flip with it
+/// in rows and chips that fill on focus.
+struct CategoryNameLabel: View {
+    let name: CategoryName
+    var strikethrough = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(name.title)
+                .strikethrough(strikethrough)
+                .lineLimit(1)
+            if let detail = name.detail {
+                Text(detail)
+                    .font(.tvSmall)
+                    .opacity(0.65)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
     }

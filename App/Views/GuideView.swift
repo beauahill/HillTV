@@ -326,7 +326,7 @@ struct GuideView: View {
 
     private var listTitle: String {
         if model.showsFavorites { return "Favorites" }
-        return model.categories.first { $0.id == model.selectedCategoryID }?.name ?? "Guide"
+        return model.categories.first { $0.id == model.selectedCategoryID }?.displayName.title ?? "Guide"
     }
 
     /// "Favorites" sits above the provider's categories and is never hidden.

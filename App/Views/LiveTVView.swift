@@ -250,7 +250,7 @@ struct LiveTVView: View {
 
     private var listTitle: String {
         if model.showsFavorites { return "Favorites" }
-        return model.categories.first { $0.id == model.reorderCategoryID }?.name ?? "Live TV"
+        return model.categories.first { $0.id == model.reorderCategoryID }?.displayName.title ?? "Live TV"
     }
 
     // MARK: Pills and categories
@@ -323,7 +323,9 @@ struct LiveTVView: View {
                     }
 
                     ForEach(model.subcategories) { category in
-                        chip(category.name, id: category.id)
+                        chip(id: category.id) {
+                            CategoryNameLabel(name: category.displayName)
+                        }
                     }
                 }
                 .padding(.horizontal, 12)
@@ -350,10 +352,14 @@ struct LiveTVView: View {
     }
 
     private func chip(_ title: String, id: String) -> some View {
+        chip(id: id) { Text(title) }
+    }
+
+    private func chip(id: String, @ViewBuilder label: () -> some View) -> some View {
         Button {
             Task { await model.select(sub: id) }
         } label: {
-            Text(title)
+            label()
         }
         .buttonStyle(TVChipButtonStyle(isSelected: model.selection?.sub == id))
         .id(id)
@@ -759,8 +765,7 @@ private struct CategoryPicker: View {
                                 onPick(category.id)
                                 dismiss()
                             } label: {
-                                Text(category.name)
-                                    .lineLimit(1)
+                                CategoryNameLabel(name: category.displayName)
                             }
                             .buttonStyle(TVRowButtonStyle(isSelected: category.id == selectedID, minHeight: 64, font: .tvMeta))
                         }

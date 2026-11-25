@@ -39,6 +39,13 @@ final class CategoryGroupTests: XCTestCase {
         assertGroup("DE: KINDER", .world)
     }
 
+    /// A live category as Beau's provider names them: a continent between bars.
+    func testBarMarkerFromARealProvider() {
+        assertGroup("|NA| USA Sports", .sports)
+        assertGroup("|NA| USA News", .news)
+        assertGroup("|NA| USA Kids", .kids)
+    }
+
     func testEnglishMarkersDoNotCountAsForeign() {
         assertGroup("USA", .shows)
         assertGroup("UK HD", .shows)

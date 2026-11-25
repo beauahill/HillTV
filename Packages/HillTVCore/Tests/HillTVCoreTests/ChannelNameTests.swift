@@ -26,6 +26,9 @@ final class ChannelNameTests: XCTestCase {
         XCTAssertEqual(parts("(UK) Sky Sports Main Event UHD"), ["Sky Sports Main Event", "UK", "UHD"])
         XCTAssertEqual(parts("|FR| TF1 4K"), ["TF1", "FR", "4K"])
         XCTAssertEqual(parts("[US] - NBC"), ["NBC", "US", ""])
+        // The form Beau's provider uses, "NA" for North America.
+        XCTAssertEqual(parts("|NA| USA Sports"), ["USA Sports", "NA", ""])
+        XCTAssertEqual(parts("|NA| ESPN HD"), ["ESPN", "NA", "HD"])
         // Not a region, so the bracket is part of the name.
         XCTAssertEqual(parts("(WNYW) FOX 5 New York"), ["(WNYW) FOX 5 New York", "-", ""])
     }

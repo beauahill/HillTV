@@ -167,6 +167,8 @@ public struct ChannelName: Equatable, Sendable {
         "cn", "jp", "kr", "th", "vn", "ph", "id", "my", "sg", "hk", "tw",
         "br", "bra", "mx", "mex", "co", "cl", "pe", "ve", "ec", "uy", "py", "bo", "cu", "do", "pr", "ht", "jm",
         "la", "lat", "latam", "za", "ng", "gh", "ke", "et", "so", "eu",
+        // Continents, as in "|NA| USA Sports".
+        "na", "oc",
     ]
 
     // MARK: Quality
