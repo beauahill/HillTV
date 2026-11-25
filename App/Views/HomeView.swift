@@ -326,7 +326,8 @@ struct HomeView: View {
 }
 
 /// Unblurred artwork on the right of the hero card, faded into the surface on the left.
-private struct HeroArt: View {
+/// Also behind Discover's billboard.
+struct HeroArt: View {
     let url: URL?
 
     var body: some View {

@@ -47,6 +47,7 @@ struct RootView: View {
 
 enum AppSection: String, CaseIterable, Identifiable {
     case home
+    case discover
     case search
     case live
     case guide
@@ -60,6 +61,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "Home"
+        case .discover: return "Discover"
         case .search: return "Search"
         case .live: return "Live TV"
         case .guide: return "Guide"
@@ -73,6 +75,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .home: return "house"
+        case .discover: return "sparkles"
         case .search: return "magnifyingglass"
         case .live: return "tv"
         case .guide: return "calendar"
@@ -97,6 +100,7 @@ struct MainShell: View {
     @State private var section: AppSection = .home
     @State private var showingSearch = false
     @State private var home: HomeModel
+    @State private var discover: DiscoverModel
     @State private var search: SearchModel
     @State private var live: LiveTVModel
     @State private var guide: GuideModel
@@ -111,6 +115,7 @@ struct MainShell: View {
     init(client: XtreamClient, visibility: CategoryVisibilityStore, order: ChannelOrderStore) {
         self.client = client
         _home = State(initialValue: HomeModel(client: client, visibility: visibility))
+        _discover = State(initialValue: DiscoverModel(client: client))
         _search = State(initialValue: SearchModel(client: client, visibility: visibility))
         _live = State(initialValue: LiveTVModel(client: client, visibility: visibility, order: order))
         _guide = State(initialValue: GuideModel(client: client, visibility: visibility, order: order))
@@ -230,6 +235,7 @@ struct MainShell: View {
     private var contentAtRoot: Bool {
         switch section {
         case .home: return home.path.isEmpty
+        case .discover: return discover.path.isEmpty
         case .movies: return movies.path.isEmpty
         case .series: return series.path.isEmpty
         // Search is never the shell's section; it has its own page.
@@ -242,6 +248,9 @@ struct MainShell: View {
         switch section {
         case .home:
             HomeView(model: home, epg: epg) { showingSearch = true }
+        case .discover:
+            // Shares Home's rails, so the two pages make one set of requests.
+            DiscoverView(model: discover, catalog: home, epg: epg)
         case .search:
             // Never selected: see `railSelection`.
             EmptyView()
