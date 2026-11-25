@@ -92,6 +92,10 @@ struct KSPlayerEngineView: View {
         let options = KSOptions()
         options.isLive = item.isLive
         options.userAgent = userAgent
+        // Subtitles start off, as they do in the Apple player. KSPlayer
+        // otherwise turns on a file's own subtitles, and its "Off" was
+        // reported not to work on the TV.
+        options.autoSelectEmbedSubtitle = false
         if item.isLive {
             options.preferredForwardBufferDuration = settings.liveBuffer.seconds
         } else if let start = item.startAt, start > 0 {

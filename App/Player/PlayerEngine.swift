@@ -151,8 +151,12 @@ struct PlayerView: View {
     }
 
     var body: some View {
+        // Only the background and the Apple player run to the screen's edges.
+        // KSPlayer's control bar is as wide as the space it is given, so it
+        // stays inside the safe area; KSPlayer runs its picture to the edges
+        // by itself.
         ZStack {
-            Color.black
+            Color.black.ignoresSafeArea()
             if let errorMessage {
                 PlaybackErrorView(item: item, usedKSPlayer: usesKSPlayer, message: errorMessage) { dismiss() }
             } else if usesKSPlayer {
@@ -172,9 +176,9 @@ struct PlayerView: View {
                     onProgress: onProgress,
                     onFailedToStart: fallBack
                 )
+                .ignoresSafeArea()
             }
         }
-        .ignoresSafeArea()
     }
 }
 
