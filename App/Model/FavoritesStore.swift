@@ -31,6 +31,14 @@ final class FavoritesStore {
         persist()
     }
 
+    /// Puts a favorite at `index`. The order here is the order everywhere
+    /// favorites are listed: the Favorites page, Live TV, the Guide and Home.
+    func move(_ streamID: Int, to index: Int) {
+        guard let from = channels.firstIndex(where: { $0.id == streamID }) else { return }
+        channels = ChannelOrder.moving(channels, from: from, to: index)
+        persist()
+    }
+
     private func persist() {
         if let data = try? JSONEncoder().encode(channels) {
             UserDefaults.standard.set(data, forKey: Self.key)

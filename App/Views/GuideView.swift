@@ -33,6 +33,7 @@ final class GuideModel {
     private static let maxConcurrent = 4
     private static let entriesPerChannel = 12
     private let visibility: CategoryVisibilityStore
+    private let order: ChannelOrderStore
 
     /// Stands in for a category ID when the Guide shows favorite channels.
     static let favoritesID = "hilltv.favorites"
@@ -43,9 +44,42 @@ final class GuideModel {
         selectedCategoryID == Self.favoritesID
     }
 
-    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore, order: ChannelOrderStore) {
         self.client = client
         self.visibility = visibility
+        self.order = order
+    }
+
+    // MARK: The viewer's order
+
+    /// The provider category on screen. Nil for Favorites, which keeps its
+    /// own order in `FavoritesStore`.
+    var reorderCategoryID: String? {
+        guard let id = selectedCategoryID, id != Self.favoritesID else { return nil }
+        return id
+    }
+
+    var hasCustomOrder: Bool {
+        reorderCategoryID.map(order.hasOrder(for:)) ?? false
+    }
+
+    func move(_ streamID: Int, to index: Int) {
+        guard let categoryID = reorderCategoryID else { return }
+        order.move(streamID, to: index, in: channels, categoryID: categoryID)
+        applyOrder()
+    }
+
+    func resetOrder() {
+        guard let categoryID = reorderCategoryID else { return }
+        order.reset(categoryID)
+        applyOrder()
+    }
+
+    /// `channels` is stored, not sorted per render. This runs after a move
+    /// and when the Guide appears, since Live TV can reorder the same category.
+    private func applyOrder() {
+        guard let categoryID = reorderCategoryID, let cached = channelCache[categoryID] else { return }
+        channels = order.apply(cached, categoryID: categoryID)
     }
 
     /// Categories the user hasn't hidden.
@@ -87,7 +121,11 @@ final class GuideModel {
         if showsFavorites { return }
         let visible = visibleCategories
         if let id = selectedCategoryID, visible.contains(where: { $0.id == id }) {
-            if channelState == .idle { await select(id) }
+            if channelState == .idle {
+                await select(id)
+            } else {
+                applyOrder()
+            }
         } else if let first = visible.first {
             await select(first.id)
         } else {
@@ -114,7 +152,7 @@ final class GuideModel {
             return
         }
         if let cached = channelCache[categoryID] {
-            channels = cached
+            channels = order.apply(cached, categoryID: categoryID)
             channelState = cached.isEmpty ? .empty : .loaded
             return
         }
@@ -124,7 +162,7 @@ final class GuideModel {
             let result = try await client.liveStreams(categoryID: categoryID)
             channelCache[categoryID] = result
             guard selectedCategoryID == categoryID else { return }
-            channels = result
+            channels = order.apply(result, categoryID: categoryID)
             channelState = result.isEmpty ? .empty : .loaded
         } catch {
             guard selectedCategoryID == categoryID else { return }
@@ -219,6 +257,8 @@ struct GuideView: View {
 
     @Environment(AppModel.self) private var app
     @State private var nowPlaying: PlayableItem?
+    /// Set to move a channel within the list on screen.
+    @State private var moving: ChannelMove?
     @FocusState private var focusedCategory: String?
 
     private let channelColumn: CGFloat = 250
@@ -275,6 +315,18 @@ struct GuideView: View {
             if let newValue { model.scheduleSelect(newValue) }
         }
         .playerCover(item: $nowPlaying)
+        .moveChannelCover($moving) { move, index in
+            if model.showsFavorites {
+                app.favorites.move(move.stream.id, to: index)
+            } else {
+                model.move(move.stream.id, to: index)
+            }
+        }
+    }
+
+    private var listTitle: String {
+        if model.showsFavorites { return "Favorites" }
+        return model.categories.first { $0.id == model.selectedCategoryID }?.name ?? "Guide"
     }
 
     /// "Favorites" sits above the provider's categories and is never hidden.
@@ -347,6 +399,14 @@ struct GuideView: View {
                     .contextMenu {
                         Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
                             app.favorites.toggle(stream)
+                        }
+                        if rows.count > 1 {
+                            Button("Move") {
+                                ChannelMove.begin(ChannelMove(listTitle: listTitle, channels: rows, stream: stream), into: $moving)
+                            }
+                        }
+                        if model.hasCustomOrder {
+                            Button("Use the provider's order") { model.resetOrder() }
                         }
                     }
                 }

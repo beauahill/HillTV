@@ -34,6 +34,8 @@ struct LiveTVView: View {
     @State private var picking: GamePick?
     /// The channel chosen in that list, played once the list has closed.
     @State private var pendingStream: LiveStream?
+    /// Set to move a channel within the list on screen.
+    @State private var moving: ChannelMove?
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focus: ListFocus?
 
@@ -137,7 +139,7 @@ struct LiveTVView: View {
     /// not behind the player or another full-screen list, not in the background.
     private var previewAllowed: Bool {
         app.previewMode != .off && app.previewSupported
-            && nowPlaying == nil && !showingCategories && picking == nil && scenePhase == .active
+            && nowPlaying == nil && !showingCategories && picking == nil && moving == nil && scenePhase == .active
     }
 
     private struct PreviewKey: Hashable {
@@ -230,6 +232,24 @@ struct LiveTVView: View {
             }
         }
         .playerCover(item: $nowPlaying)
+        .moveChannelCover($moving) { move, index in
+            if model.showsFavorites {
+                app.favorites.move(move.stream.id, to: index)
+            } else {
+                model.move(move.stream.id, to: index)
+            }
+        }
+    }
+
+    /// Favorites and single categories can be put in the viewer's own order.
+    /// "All" and Games are built from several categories and can't.
+    private var canReorder: Bool {
+        (model.showsFavorites || model.reorderCategoryID != nil) && streams.count > 1
+    }
+
+    private var listTitle: String {
+        if model.showsFavorites { return "Favorites" }
+        return model.categories.first { $0.id == model.reorderCategoryID }?.name ?? "Live TV"
     }
 
     // MARK: Pills and categories
@@ -362,6 +382,14 @@ struct LiveTVView: View {
                     .contextMenu {
                         Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
                             app.favorites.toggle(stream)
+                        }
+                        if canReorder {
+                            Button("Move") {
+                                ChannelMove.begin(ChannelMove(listTitle: listTitle, channels: streams, stream: stream), into: $moving)
+                            }
+                        }
+                        if model.hasCustomOrder {
+                            Button("Use the provider's order") { model.resetOrder() }
                         }
                     }
                     .onAppear { epg.rowAppeared(stream.id) }

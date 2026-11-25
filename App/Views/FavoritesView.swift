@@ -6,6 +6,7 @@ struct FavoritesView: View {
 
     @Environment(AppModel.self) private var app
     @State private var nowPlaying: PlayableItem?
+    @State private var moving: ChannelMove?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -41,6 +42,14 @@ struct FavoritesView: View {
                             }
                             .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
                             .contextMenu {
+                                if app.favorites.channels.count > 1 {
+                                    Button("Move") {
+                                        ChannelMove.begin(
+                                            ChannelMove(listTitle: "Favorites", channels: app.favorites.channels, stream: stream),
+                                            into: $moving
+                                        )
+                                    }
+                                }
                                 Button("Remove from Favorites", role: .destructive) {
                                     app.favorites.toggle(stream)
                                 }
@@ -53,5 +62,8 @@ struct FavoritesView: View {
             }
         }
         .playerCover(item: $nowPlaying)
+        .moveChannelCover($moving) { move, index in
+            app.favorites.move(move.stream.id, to: index)
+        }
     }
 }

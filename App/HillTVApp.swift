@@ -31,7 +31,7 @@ struct RootView: View {
                 LoginView()
             case .signedIn:
                 if let client = app.client {
-                    MainShell(client: client, visibility: app.categoryVisibility)
+                    MainShell(client: client, visibility: app.categoryVisibility, order: app.channelOrder)
                         // New client (sign out/in) gets fresh section state.
                         .id(ObjectIdentifier(client))
                 } else {
@@ -108,12 +108,12 @@ struct MainShell: View {
     /// Briefly true to push focus out of the rail. See `leaveRail()`.
     @State private var railLocked = false
 
-    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore, order: ChannelOrderStore) {
         self.client = client
         _home = State(initialValue: HomeModel(client: client, visibility: visibility))
         _search = State(initialValue: SearchModel(client: client, visibility: visibility))
-        _live = State(initialValue: LiveTVModel(client: client, visibility: visibility))
-        _guide = State(initialValue: GuideModel(client: client, visibility: visibility))
+        _live = State(initialValue: LiveTVModel(client: client, visibility: visibility, order: order))
+        _guide = State(initialValue: GuideModel(client: client, visibility: visibility, order: order))
         _movies = State(initialValue: MoviesModel(client: client, visibility: visibility))
         _series = State(initialValue: SeriesModel(client: client, visibility: visibility))
         _epg = State(initialValue: EPGStore(client: client))
