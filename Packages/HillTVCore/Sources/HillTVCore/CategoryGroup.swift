@@ -87,12 +87,12 @@ public enum CategoryGroup: String, CaseIterable, Identifiable, Sendable, Codable
                   "discovery", "drama", "local", "locals", "regional", "network", "networks"]),
     ]
 
-    private static let englishWords: Set<String> = [
+    static let englishWords: Set<String> = [
         "us", "usa", "uk", "ca", "canada", "america", "american", "english", "australia", "ireland",
     ]
 
     /// Country and language names that mark a category as not in English.
-    private static let foreignWords: Set<String> = [
+    static let foreignWords: Set<String> = [
         "international", "latino", "latina", "latin", "latam", "spanish", "espanol", "mexico", "mexican",
         "arabic", "arab", "india", "indian", "hindi", "punjabi", "tamil", "telugu", "malayalam", "urdu",
         "pakistan", "pakistani", "bangla", "bengali", "france", "french", "germany", "german", "deutsch",
@@ -105,6 +105,9 @@ public enum CategoryGroup: String, CaseIterable, Identifiable, Sendable, Codable
         "nordic", "scandinavia", "israel", "hebrew", "armenia", "armenian", "afghan", "afghanistan",
         "caribbean", "haiti", "colombia", "argentina", "chile", "peru", "venezuela", "europe", "asia",
     ]
+
+    /// Every country and language word above, for `ChannelName`.
+    static let regionWords = englishWords.union(foreignWords)
 
     /// Two-letter country codes, counted only as the first word ("FR | CINEMA").
     /// Elsewhere they are too easily ordinary words. Codes that are common

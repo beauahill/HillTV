@@ -107,6 +107,48 @@ struct SettingsView: View {
                         .padding(.horizontal, 24)
                 }
 
+                SettingsCard(title: "Multiview") {
+                    ForEach([false, true], id: \.self) { ignoring in
+                        Button {
+                            app.multiviewIgnoresLimit = ignoring
+                        } label: {
+                            HStack {
+                                Text(ignoring ? "Try up to four channels" : "Follow the account's connections")
+                                Spacer()
+                                if app.multiviewIgnoresLimit == ignoring {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        .buttonStyle(TVRowButtonStyle(isSelected: app.multiviewIgnoresLimit == ignoring, font: .tvMeta))
+                    }
+                    Text(multiviewSummary)
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+
+                    if app.multiviewTSAvailable {
+                        ForEach([false, true], id: \.self) { usesTS in
+                            Button {
+                                app.multiviewUsesTS = usesTS
+                            } label: {
+                                HStack {
+                                    Text(usesTS ? "Play channels as MPEG-TS (KSPlayer, trial)" : "Play channels as HLS (Apple player)")
+                                    Spacer()
+                                    if app.multiviewUsesTS == usesTS {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .buttonStyle(TVRowButtonStyle(isSelected: app.multiviewUsesTS == usesTS, font: .tvMeta))
+                        }
+                        Text("If channels in the multiview keep stopping each other, try MPEG-TS. It asks your provider for each channel in a different way, which some providers count differently. It may make no difference.")
+                            .font(.tvSmall)
+                            .foregroundStyle(Theme.muted)
+                            .padding(.horizontal, 24)
+                    }
+                }
+
                 SettingsCard(title: "Categories") {
                     Button {
                         showingCategories = true
@@ -195,6 +237,16 @@ extension SettingsView {
         case .closest:
             return "Keeps up, and also plays at about half the usual distance behind the broadcast. Expect more pauses on a weak connection. The live buffer can't be larger than that distance."
         }
+    }
+
+    fileprivate var multiviewSummary: String {
+        let reported: String
+        switch app.reportedConnections {
+        case nil: reported = "Your provider doesn't say how many connections this account has."
+        case 1?: reported = "Your provider reports 1 connection for this account."
+        case let count?: reported = "Your provider reports \(count) connections for this account."
+        }
+        return "\(reported) Every channel in the multiview is a connection. Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
     }
 
     fileprivate var hiddenSummary: String {

@@ -8,6 +8,8 @@ import SwiftUI
 struct GamePick: Identifiable {
     let game: SportsGame
     let matches: [GameChannelMatch]
+    /// The chosen channel goes into the multiview instead of the player.
+    var forMultiview = false
 
     var id: String { game.id }
 }
@@ -119,10 +121,11 @@ struct GameRow: View {
     private var channelText: String {
         let sure = matches.filter { $0.strength == .teams }
         if let first = sure.first {
-            return sure.count > 1 ? "\(first.stream.name) +\(sure.count - 1)" : first.stream.name
+            let name = first.stream.displayName.title
+            return sure.count > 1 ? "\(name) +\(sure.count - 1)" : name
         }
         if let first = matches.first {
-            return matches.count == 1 ? "Maybe \(first.stream.name)" : "Maybe on \(matches.count) channels"
+            return matches.count == 1 ? "Maybe \(first.stream.displayName.title)" : "Maybe on \(matches.count) channels"
         }
         return channelsLoaded ? "No matching channel" : "Finding channels"
     }
@@ -242,10 +245,8 @@ struct GameDetailPane: View {
                 ForEach((sure.isEmpty ? matches : sure).prefix(3)) { match in
                     HStack(spacing: 16) {
                         ChannelLogo(url: match.stream.iconURL, size: CGSize(width: 72, height: 48))
-                        Text(match.stream.name)
-                            .font(.tvMeta)
+                        ChannelNameLabel(name: match.stream.displayName, font: .tvMeta, layout: .inline)
                             .foregroundStyle(Theme.text)
-                            .lineLimit(1)
                     }
                 }
                 if sure.isEmpty {
@@ -270,7 +271,7 @@ struct GameChannelPicker: View {
 
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Eyebrow(text: "Where to watch")
+                    Eyebrow(text: pick.forMultiview ? "Add to Multiview" : "Where to watch")
                     Text("\(pick.game.away.shortName) at \(pick.game.home.shortName)")
                         .font(.tvTitle)
                         .foregroundStyle(Theme.text)
@@ -288,9 +289,12 @@ struct GameChannelPicker: View {
                                 HStack(spacing: 20) {
                                     ChannelLogo(url: match.stream.iconURL)
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(match.stream.name)
-                                            .font(.tvMeta.weight(.semibold))
-                                            .lineLimit(1)
+                                        ChannelNameLabel(
+                                            name: match.stream.displayName,
+                                            font: .tvMeta.weight(.semibold),
+                                            layout: .inline,
+                                            inFocusRow: true
+                                        )
                                         Text(match.strength == .teams ? "Names both teams" : "Carries the network, may be a different game")
                                             .font(.tvSmall)
                                             .tvSecondary()

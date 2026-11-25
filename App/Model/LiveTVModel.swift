@@ -50,10 +50,12 @@ final class LiveTVModel {
     /// The sub-selection last used in each group, so coming back restores it.
     private var lastSub: [CategoryGroup: String] = [:]
     private let visibility: CategoryVisibilityStore
+    private let order: ChannelOrderStore
 
-    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore, order: ChannelOrderStore) {
         self.client = client
         self.visibility = visibility
+        self.order = order
     }
 
     // MARK: Derived
@@ -94,6 +96,41 @@ final class LiveTVModel {
 
     private static func offersAll(_ categories: [XtreamCategory]) -> Bool {
         (2...mergeLimit).contains(categories.count)
+    }
+
+    // MARK: The viewer's order
+
+    /// The provider category on screen, when the list is one category.
+    /// Only those can be put in the viewer's own order: "All" and Games are
+    /// built from several categories, and Favorites keeps its own order.
+    var reorderCategoryID: String? {
+        guard case .group(_)? = selection?.pill, let sub = selection?.sub,
+              sub != Self.allID, sub != Self.gamesID else { return nil }
+        return sub
+    }
+
+    var hasCustomOrder: Bool {
+        reorderCategoryID.map(order.hasOrder(for:)) ?? false
+    }
+
+    func move(_ streamID: Int, to index: Int) {
+        guard let categoryID = reorderCategoryID else { return }
+        order.move(streamID, to: index, in: streams, categoryID: categoryID)
+        applyOrder()
+    }
+
+    func resetOrder() {
+        guard let categoryID = reorderCategoryID else { return }
+        order.reset(categoryID)
+        applyOrder()
+    }
+
+    /// `streams` is stored, not sorted per render. This runs after a move
+    /// and when Live TV appears, since the Guide can reorder the same
+    /// category.
+    private func applyOrder() {
+        guard let categoryID = reorderCategoryID, let cached = streamCache[categoryID] else { return }
+        streams = order.apply(cached, categoryID: categoryID)
     }
 
     // MARK: Loading
@@ -197,7 +234,11 @@ final class LiveTVModel {
             }
             if let sub = selection.sub, validSubs(group, grouped.categories).contains(sub) {
                 // "All" and "Games" depend on which categories are visible, so rebuild them.
-                if streamState == .idle || sub == Self.allID || sub == Self.gamesID { await load() }
+                if streamState == .idle || sub == Self.allID || sub == Self.gamesID {
+                    await load()
+                } else {
+                    applyOrder()
+                }
             } else {
                 lastSub[group] = nil
                 self.selection = Selection(pill: selection.pill, sub: defaultSub(group, grouped.categories))
@@ -261,7 +302,7 @@ final class LiveTVModel {
         }
 
         if let cached = streamCache[sub] {
-            streams = cached
+            streams = order.apply(cached, categoryID: sub)
             streamState = cached.isEmpty ? .empty : .loaded
             return
         }
@@ -272,7 +313,7 @@ final class LiveTVModel {
             streamCache[sub] = result
             // Ignore late results if the user already moved on.
             guard selection == token else { return }
-            streams = result
+            streams = order.apply(result, categoryID: sub)
             streamState = result.isEmpty ? .empty : .loaded
         } catch {
             guard selection == token else { return }

@@ -12,9 +12,18 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
     var settings = PlaybackSettings()
     @Binding var errorMessage: String?
     var onProgress: (@MainActor (Double, Double?) -> Void)?
+    /// When set, a file that never starts playing is reported here instead
+    /// of through `errorMessage`, so another player can try it. A failure
+    /// after playback has started is always an error.
+    var onFailedToStart: (@MainActor (String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(errorMessage: $errorMessage, onProgress: onProgress, liveSettings: item.isLive ? settings : nil)
+        Coordinator(
+            errorMessage: $errorMessage,
+            onProgress: onProgress,
+            onFailedToStart: onFailedToStart,
+            liveSettings: item.isLive ? settings : nil
+        )
     }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
@@ -71,6 +80,8 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
     final class Coordinator: NSObject {
         private let errorMessage: Binding<String?>
         private let onProgress: (@MainActor (Double, Double?) -> Void)?
+        private let onFailedToStart: (@MainActor (String) -> Void)?
+        private var becameReady = false
         /// Set for live channels only.
         private let liveSettings: PlaybackSettings?
         private var appliedLiveOffset = false
@@ -82,10 +93,12 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
         init(
             errorMessage: Binding<String?>,
             onProgress: (@MainActor (Double, Double?) -> Void)?,
+            onFailedToStart: (@MainActor (String) -> Void)?,
             liveSettings: PlaybackSettings?
         ) {
             self.errorMessage = errorMessage
             self.onProgress = onProgress
+            self.onFailedToStart = onFailedToStart
             self.liveSettings = liveSettings
         }
 
@@ -114,6 +127,7 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
         private func statusChanged(_ item: AVPlayerItem) {
             switch item.status {
             case .readyToPlay:
+                becameReady = true
                 // Seeking before the item is ready can be ignored, so resume here.
                 if let start = pendingStart {
                     pendingStart = nil
@@ -121,7 +135,13 @@ struct AVPlayerEngineView: UIViewControllerRepresentable {
                 }
                 moveCloserToLive(item)
             case .failed:
-                errorMessage.wrappedValue = item.error?.localizedDescription ?? "Unknown playback error."
+                let message = item.error?.localizedDescription ?? "Unknown playback error."
+                if !becameReady, let onFailedToStart {
+                    // statusChanged always runs on the main queue.
+                    MainActor.assumeIsolated { onFailedToStart(message) }
+                } else {
+                    errorMessage.wrappedValue = message
+                }
             default:
                 break
             }

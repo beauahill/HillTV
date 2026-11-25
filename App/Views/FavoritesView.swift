@@ -6,6 +6,7 @@ struct FavoritesView: View {
 
     @Environment(AppModel.self) private var app
     @State private var nowPlaying: PlayableItem?
+    @State private var moving: ChannelMove?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -32,7 +33,7 @@ struct FavoritesView: View {
                             Button {
                                 nowPlaying = PlayableItem(
                                     id: "live-\(stream.id)",
-                                    title: stream.name,
+                                    title: stream.displayName.title,
                                     url: client.liveURL(streamID: stream.id, format: app.liveFormat),
                                     isLive: true
                                 )
@@ -41,6 +42,17 @@ struct FavoritesView: View {
                             }
                             .buttonStyle(TVRowButtonStyle(minHeight: Theme.listRowHeight))
                             .contextMenu {
+                                Button(app.multiview.tiles.contains(stream.id) ? "Open Multiview" : "Add to Multiview") {
+                                    app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
+                                }
+                                if app.favorites.channels.count > 1 {
+                                    Button("Move") {
+                                        ChannelMove.begin(
+                                            ChannelMove(listTitle: "Favorites", channels: app.favorites.channels, stream: stream),
+                                            into: $moving
+                                        )
+                                    }
+                                }
                                 Button("Remove from Favorites", role: .destructive) {
                                     app.favorites.toggle(stream)
                                 }
@@ -53,5 +65,8 @@ struct FavoritesView: View {
             }
         }
         .playerCover(item: $nowPlaying)
+        .moveChannelCover($moving) { move, index in
+            app.favorites.move(move.stream.id, to: index)
+        }
     }
 }

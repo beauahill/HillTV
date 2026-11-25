@@ -132,9 +132,7 @@ struct CategoryManagerView: View {
                         HStack(spacing: 16) {
                             Image(systemName: hidden ? "eye.slash" : "eye")
                                 .frame(width: 34)
-                            Text(category.name)
-                                .strikethrough(hidden)
-                                .lineLimit(1)
+                            CategoryNameLabel(name: category.displayName, strikethrough: hidden)
                             Spacer(minLength: 0)
                         }
                         .opacity(hidden ? 0.55 : 1)

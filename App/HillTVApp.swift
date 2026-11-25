@@ -31,7 +31,7 @@ struct RootView: View {
                 LoginView()
             case .signedIn:
                 if let client = app.client {
-                    MainShell(client: client, visibility: app.categoryVisibility)
+                    MainShell(client: client, visibility: app.categoryVisibility, order: app.channelOrder)
                         // New client (sign out/in) gets fresh section state.
                         .id(ObjectIdentifier(client))
                 } else {
@@ -108,12 +108,12 @@ struct MainShell: View {
     /// Briefly true to push focus out of the rail. See `leaveRail()`.
     @State private var railLocked = false
 
-    init(client: XtreamClient, visibility: CategoryVisibilityStore) {
+    init(client: XtreamClient, visibility: CategoryVisibilityStore, order: ChannelOrderStore) {
         self.client = client
         _home = State(initialValue: HomeModel(client: client, visibility: visibility))
         _search = State(initialValue: SearchModel(client: client, visibility: visibility))
-        _live = State(initialValue: LiveTVModel(client: client, visibility: visibility))
-        _guide = State(initialValue: GuideModel(client: client, visibility: visibility))
+        _live = State(initialValue: LiveTVModel(client: client, visibility: visibility, order: order))
+        _guide = State(initialValue: GuideModel(client: client, visibility: visibility, order: order))
         _movies = State(initialValue: MoviesModel(client: client, visibility: visibility))
         _series = State(initialValue: SeriesModel(client: client, visibility: visibility))
         _epg = State(initialValue: EPGStore(client: client))
@@ -161,6 +161,24 @@ struct MainShell: View {
             // Passed explicitly rather than relying on the environment reaching into a cover.
             .environment(app)
         }
+        .fullScreenCover(isPresented: multiviewShowing) {
+            MultiviewView(client: client, epg: epg)
+                .foregroundStyle(Theme.text)
+                .tint(Theme.accent)
+                .preferredColorScheme(.dark)
+                .environment(app)
+        }
+    }
+
+    /// The multiview is opened from hold-Select menus all over the app, so
+    /// its switch lives on `AppModel` and the cover lives here. The section
+    /// behind stays up, keeping its place for adding another channel; Live TV
+    /// stops its preview and scores while the multiview shows.
+    private var multiviewShowing: Binding<Bool> {
+        Binding(
+            get: { app.multiview.isShowing },
+            set: { app.multiview.isShowing = $0 }
+        )
     }
 
     /// Picking Search in the rail opens the search page and leaves the
@@ -223,7 +241,7 @@ struct MainShell: View {
     private var content: some View {
         switch section {
         case .home:
-            HomeView(model: home, epg: epg) { showingSearch = true }
+            HomeView(model: home, epg: epg)
         case .search:
             // Never selected: see `railSelection`.
             EmptyView()

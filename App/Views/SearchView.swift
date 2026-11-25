@@ -232,7 +232,7 @@ struct SearchView: View {
     private func play(_ stream: LiveStream) {
         nowPlaying = PlayableItem(
             id: "live-\(stream.id)",
-            title: stream.name,
+            title: stream.displayName.title,
             url: model.client.liveURL(streamID: stream.id, format: app.liveFormat),
             isLive: true
         )

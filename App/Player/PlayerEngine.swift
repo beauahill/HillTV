@@ -74,10 +74,12 @@ enum PlayerEngineKind: String, CaseIterable, Identifiable {
     /// Apple's player. HLS (.m3u8) and mp4 only, but hardware-perfect and
     /// gets the native tvOS transport bar and info panel for free.
     case avPlayer
-    /// KSPlayer (FFmpeg), used for live channels only for now: it plays the
-    /// raw MPEG-TS stream, which runs closer to the broadcast than HLS.
-    /// Movies and episodes stay on AVPlayer, which has resume and progress
-    /// saving. Only available when the app is built with project-ksplayer.yml.
+    /// KSPlayer (FFmpeg) for live channels: it plays the raw MPEG-TS stream,
+    /// which runs closer to the broadcast than HLS. Only available when the
+    /// app is built with project-ksplayer.yml.
+    ///
+    /// This choice is about live channels. Movies and episodes don't follow
+    /// it: see `PlayerView.usesKSPlayer`.
     case ksPlayer
 
     var id: String { rawValue }
@@ -92,9 +94,11 @@ enum PlayerEngineKind: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .avPlayer:
-            return "Apple's player for everything. Live channels are requested as HLS (.m3u8), which runs further behind the broadcast."
+            return KSPlayerSupport.isLinked
+                ? "Live channels play in Apple's player as HLS (.m3u8), which runs further behind the broadcast. Movies and episodes use it too, except files it can't open, such as mkv. Those play in KSPlayer."
+                : "Apple's player for everything. Live channels are requested as HLS (.m3u8), which runs further behind the broadcast. It can't open some movie files, such as mkv."
         case .ksPlayer:
-            return "Live channels play the raw stream (MPEG-TS) through KSPlayer, for less delay behind the broadcast. Its on-screen controls look different. Movies and episodes still use the Apple player, so resume and continue watching keep working."
+            return "Live channels play the raw stream (MPEG-TS) through KSPlayer, for less delay behind the broadcast. Its on-screen controls look different. Movies and episodes still use the Apple player when it can open the file. Other files, such as mkv, play in KSPlayer whichever is picked here."
         }
     }
 
@@ -124,35 +128,79 @@ struct PlayerView: View {
     var onProgress: (@MainActor (Double, Double?) -> Void)?
 
     @State private var errorMessage: String?
+    /// Set when Apple's player couldn't open a movie or episode and KSPlayer took over.
+    @State private var fellBack = false
     @Environment(\.dismiss) private var dismiss
 
+    /// Live channels follow the choice in Settings. Movies and episodes use
+    /// Apple's player whenever it can open the file, because it has the
+    /// native transport bar. KSPlayer takes the file types it can't open
+    /// (mkv, avi), and any file it tried and couldn't start.
+    private var usesKSPlayer: Bool {
+        guard KSPlayerSupport.isLinked else { return false }
+        if item.isLive { return engine == .ksPlayer }
+        return fellBack || !MediaContainer.applePlayerCanOpen(item.url)
+    }
+
+    /// A movie or episode Apple's player can't start gets one try in
+    /// KSPlayer before the error screen. The file type in the URL comes from
+    /// the panel and can be wrong.
+    private var fallBack: (@MainActor (String) -> Void)? {
+        guard KSPlayerSupport.isLinked, !item.isLive else { return nil }
+        return { _ in fellBack = true }
+    }
+
     var body: some View {
+        // Only the background and the Apple player run to the screen's edges.
+        // KSPlayer's control bar is as wide as the space it is given, so it
+        // stays inside the safe area; KSPlayer runs its picture to the edges
+        // by itself.
         ZStack {
-            Color.black
+            Color.black.ignoresSafeArea()
             if let errorMessage {
-                PlaybackErrorView(item: item, engine: engine, message: errorMessage) { dismiss() }
-            } else if engine == .ksPlayer && KSPlayerSupport.isLinked && item.isLive {
-                // Live only: KSPlayerEngineView has no resume or progress saving yet.
-                KSPlayerEngineView(item: item, userAgent: userAgent, settings: settings, errorMessage: $errorMessage)
-            } else {
-                AVPlayerEngineView(
+                PlaybackErrorView(item: item, usedKSPlayer: usesKSPlayer, message: errorMessage) { dismiss() }
+            } else if usesKSPlayer {
+                KSPlayerEngineView(
                     item: item,
                     userAgent: userAgent,
                     settings: settings,
                     errorMessage: $errorMessage,
                     onProgress: onProgress
                 )
+            } else {
+                AVPlayerEngineView(
+                    item: item,
+                    userAgent: userAgent,
+                    settings: settings,
+                    errorMessage: $errorMessage,
+                    onProgress: onProgress,
+                    onFailedToStart: fallBack
+                )
+                .ignoresSafeArea()
             }
         }
-        .ignoresSafeArea()
     }
 }
 
 private struct PlaybackErrorView: View {
     let item: PlayableItem
-    let engine: PlayerEngineKind
+    let usedKSPlayer: Bool
     let message: String
     let close: () -> Void
+
+    /// What might help, when something would.
+    private var hint: String? {
+        if usedKSPlayer { return nil }
+        if KSPlayerSupport.isLinked {
+            // Files Apple's player can't open already went to KSPlayer, so
+            // only live channels have another player to try.
+            return item.isLive ? "Try switching the player to KSPlayer in Settings." : nil
+        }
+        if !item.isLive, !MediaContainer.applePlayerCanOpen(item.url) {
+            return "This build only has Apple's player, which can't open .\(item.url.pathExtension.lowercased()) files. A build that includes KSPlayer can."
+        }
+        return "Apple's player only handles HLS and mp4. A build that includes KSPlayer plays more formats."
+    }
 
     var body: some View {
         VStack(spacing: 30) {
@@ -163,10 +211,8 @@ private struct PlaybackErrorView: View {
             Text(message)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            if engine == .avPlayer {
-                Text(KSPlayerSupport.isLinked
-                     ? "Try switching the player to KSPlayer in Settings."
-                     : "AVPlayer only handles HLS and mp4. A KSPlayer build plays more formats.")
+            if let hint {
+                Text(hint)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

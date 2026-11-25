@@ -34,6 +34,10 @@ struct LiveTVView: View {
     @State private var picking: GamePick?
     /// The channel chosen in that list, played once the list has closed.
     @State private var pendingStream: LiveStream?
+    /// That channel was chosen for the multiview, not the player.
+    @State private var pendingForMultiview = false
+    /// Set to move a channel within the list on screen.
+    @State private var moving: ChannelMove?
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focus: ListFocus?
 
@@ -94,7 +98,7 @@ struct LiveTVView: View {
 
     /// The scores feed is only polled while games can be seen.
     private var gamesActive: Bool {
-        model.showsGames && nowPlaying == nil && picking == nil && scenePhase == .active
+        model.showsGames && nowPlaying == nil && picking == nil && !app.multiview.isShowing && scenePhase == .active
     }
 
     /// Restarted by `.task(id:)` when `gamesActive` changes, which cancels the previous run.
@@ -125,9 +129,32 @@ struct LiveTVView: View {
         }
     }
 
+    /// Hold Select on a game: the same rule as opening it. One channel that
+    /// names both teams goes straight into the multiview; anything less sure
+    /// asks which channel first.
+    private func addToMultiview(_ game: SportsGame) {
+        let matches = scores.matches[game.id] ?? []
+        let sure = matches.filter { $0.strength == .teams }
+        if sure.count == 1, let only = sure.first {
+            app.multiview.addAndOpen(only.stream, limit: app.multiviewLimit)
+        } else if !matches.isEmpty {
+            let pick = GamePick(game: game, matches: Array(matches.prefix(24)), forMultiview: true)
+            Task { @MainActor in
+                // The list opens once the menu has closed.
+                try? await Task.sleep(for: .milliseconds(350))
+                picking = pick
+            }
+        }
+    }
+
     private func playPending() {
         guard let stream = pendingStream else { return }
         pendingStream = nil
+        if pendingForMultiview {
+            pendingForMultiview = false
+            app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
+            return
+        }
         play(stream)
     }
 
@@ -137,7 +164,8 @@ struct LiveTVView: View {
     /// not behind the player or another full-screen list, not in the background.
     private var previewAllowed: Bool {
         app.previewMode != .off && app.previewSupported
-            && nowPlaying == nil && !showingCategories && picking == nil && scenePhase == .active
+            && nowPlaying == nil && !showingCategories && picking == nil && moving == nil
+            && !app.multiview.isShowing && scenePhase == .active
     }
 
     private struct PreviewKey: Hashable {
@@ -226,10 +254,29 @@ struct LiveTVView: View {
             GameChannelPicker(pick: pick) { stream in
                 // Play after this list has closed; two covers can't swap in one step.
                 pendingStream = stream
+                pendingForMultiview = pick.forMultiview
                 picking = nil
             }
         }
         .playerCover(item: $nowPlaying)
+        .moveChannelCover($moving) { move, index in
+            if model.showsFavorites {
+                app.favorites.move(move.stream.id, to: index)
+            } else {
+                model.move(move.stream.id, to: index)
+            }
+        }
+    }
+
+    /// Favorites and single categories can be put in the viewer's own order.
+    /// "All" and Games are built from several categories and can't.
+    private var canReorder: Bool {
+        (model.showsFavorites || model.reorderCategoryID != nil) && streams.count > 1
+    }
+
+    private var listTitle: String {
+        if model.showsFavorites { return "Favorites" }
+        return model.categories.first { $0.id == model.reorderCategoryID }?.displayName.title ?? "Live TV"
     }
 
     // MARK: Pills and categories
@@ -302,7 +349,9 @@ struct LiveTVView: View {
                     }
 
                     ForEach(model.subcategories) { category in
-                        chip(category.name, id: category.id)
+                        chip(id: category.id) {
+                            CategoryNameLabel(name: category.displayName)
+                        }
                     }
                 }
                 .padding(.horizontal, 12)
@@ -329,10 +378,14 @@ struct LiveTVView: View {
     }
 
     private func chip(_ title: String, id: String) -> some View {
+        chip(id: id) { Text(title) }
+    }
+
+    private func chip(id: String, @ViewBuilder label: () -> some View) -> some View {
         Button {
             Task { await model.select(sub: id) }
         } label: {
-            Text(title)
+            label()
         }
         .buttonStyle(TVChipButtonStyle(isSelected: model.selection?.sub == id))
         .id(id)
@@ -362,6 +415,17 @@ struct LiveTVView: View {
                     .contextMenu {
                         Button(app.favorites.contains(stream.id) ? "Remove from Favorites" : "Add to Favorites") {
                             app.favorites.toggle(stream)
+                        }
+                        Button(app.multiview.tiles.contains(stream.id) ? "Open Multiview" : "Add to Multiview") {
+                            app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
+                        }
+                        if canReorder {
+                            Button("Move") {
+                                ChannelMove.begin(ChannelMove(listTitle: listTitle, channels: streams, stream: stream), into: $moving)
+                            }
+                        }
+                        if model.hasCustomOrder {
+                            Button("Use the provider's order") { model.resetOrder() }
                         }
                     }
                     .onAppear { epg.rowAppeared(stream.id) }
@@ -394,6 +458,14 @@ struct LiveTVView: View {
             }
             .buttonStyle(TVRowButtonStyle(minHeight: 128))
             .focused($focus, equals: .game(game.id))
+            .contextMenu {
+                // Only once a channel has been found for the game.
+                if !(scores.matches[game.id] ?? []).isEmpty {
+                    Button("Add to Multiview") {
+                        addToMultiview(game)
+                    }
+                }
+            }
         }
 
         if scores.hasLoaded, list.isEmpty {
@@ -447,7 +519,7 @@ struct LiveTVView: View {
         let current = epg.schedule(for: stream.id)?.current(at: Date())
         let item = PlayableItem(
             id: "live-\(stream.id)",
-            title: stream.name,
+            title: stream.displayName.title,
             subtitle: current?.title,
             url: model.client.liveURL(streamID: stream.id, format: app.liveFormat),
             isLive: true
@@ -488,9 +560,7 @@ private struct LiveChannelRow: View {
             ChannelLogo(url: stream.iconURL)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 10) {
-                    Text(stream.name)
-                        .font(.tvMeta.weight(.semibold))
-                        .lineLimit(1)
+                    ChannelNameLabel(name: stream.displayName, font: .tvMeta.weight(.semibold), layout: .inline, inFocusRow: true)
                     if isFavorite {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 18))
@@ -555,10 +625,8 @@ private struct ChannelDetailPane: View {
                             .font(.tvHeading.monospacedDigit())
                             .foregroundStyle(Theme.muted)
                     }
-                    Text(stream.name)
-                        .font(.tvSubtitle)
+                    ChannelNameLabel(name: stream.displayName, font: .tvSubtitle, detailFont: .tvMeta, layout: .inline)
                         .foregroundStyle(Theme.text)
-                        .lineLimit(1)
                     if stream.hasArchive {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 26))
@@ -731,8 +799,7 @@ private struct CategoryPicker: View {
                                 onPick(category.id)
                                 dismiss()
                             } label: {
-                                Text(category.name)
-                                    .lineLimit(1)
+                                CategoryNameLabel(name: category.displayName)
                             }
                             .buttonStyle(TVRowButtonStyle(isSelected: category.id == selectedID, minHeight: 64, font: .tvMeta))
                         }
