@@ -34,6 +34,12 @@ final class AppModel {
         didSet { UserDefaults.standard.set(previewChoice?.rawValue, forKey: Self.previewKey) }
     }
 
+    /// The viewer chose to let the multiview try more channels than the
+    /// account reports connections for. Off unless they turn it on.
+    var multiviewIgnoresLimit: Bool {
+        didSet { UserDefaults.standard.set(multiviewIgnoresLimit, forKey: Self.multiviewLimitKey) }
+    }
+
     let favorites = FavoritesStore()
     let watchHistory = WatchHistoryStore()
     let categoryVisibility = CategoryVisibilityStore()
@@ -47,6 +53,7 @@ final class AppModel {
 
     private static let engineKey = "playerEngine"
     private static let previewKey = "livePreview"
+    private static let multiviewLimitKey = "multiviewIgnoresLimit"
     private static let playbackKey = "playbackSettings.v1"
 
     init() {
@@ -60,6 +67,7 @@ final class AppModel {
         // uses self, which needs every stored property set first.
         playback = UserDefaults.standard.data(forKey: Self.playbackKey)
             .flatMap { try? JSONDecoder().decode(PlaybackSettings.self, from: $0) } ?? PlaybackSettings()
+        multiviewIgnoresLimit = UserDefaults.standard.bool(forKey: Self.multiviewLimitKey)
         previewChoice = UserDefaults.standard.string(forKey: Self.previewKey).flatMap(LivePreviewMode.init(rawValue:))
     }
 
@@ -79,9 +87,14 @@ final class AppModel {
     }
 
     /// How many channels the multiview may play together: the account's
-    /// connection count, four at most.
+    /// connection count, four at most, unless the viewer chose to try more.
     var multiviewLimit: Int {
-        Multiview.tileLimit(maxConnections: authInfo?.user.maxConnections)
+        Multiview.tileLimit(maxConnections: authInfo?.user.maxConnections, ignoringLimit: multiviewIgnoresLimit)
+    }
+
+    /// The connection count the panel reports, when it reports one.
+    var reportedConnections: Int? {
+        authInfo?.user.maxConnections
     }
 
     /// The preview is always AVPlayer, which needs HLS.

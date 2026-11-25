@@ -40,7 +40,10 @@ struct LivePreviewView: UIViewRepresentable {
     var keepsDisplayAwake = false
     /// The stream couldn't be played. The caller falls back to a still.
     var onFailure: () -> Void = {}
-    /// The same, with the player's reason, for callers that show it.
+    /// The same, with the player's reason, for callers that show it. Also
+    /// called when a stream that was playing stops for good, which
+    /// `onFailure` is not: the multiview needs to say when the provider cuts
+    /// a channel off, and the preview is left as it was.
     var onError: (String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
@@ -82,6 +85,9 @@ struct LivePreviewView: UIViewRepresentable {
         private var statusObservation: NSKeyValueObservation?
         private weak var view: PlayerLayerView?
         private var maxResolution: CGSize?
+        private var itemObservers: [NSObjectProtocol] = []
+        private var stallCheck: Task<Void, Never>?
+        private var reportedStop = false
 
         init(onFailure: @escaping () -> Void, onError: @escaping (String) -> Void) {
             self.onFailure = onFailure
@@ -118,7 +124,50 @@ struct LivePreviewView: UIViewRepresentable {
                     self?.statusChanged(status, reason: reason)
                 }
             }
+            watchForStops(item)
             player.play()
+        }
+
+        /// A stream the provider closes after it started doesn't fail the
+        /// way one that never opens does. It either ends with an error or
+        /// just stops loading and sits on its last frame.
+        private func watchForStops(_ item: AVPlayerItem) {
+            let center = NotificationCenter.default
+            itemObservers.append(center.addObserver(
+                forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main
+            ) { [weak self] note in
+                let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                let reason = error?.localizedDescription
+                Task { @MainActor [weak self] in
+                    self?.stopped(reason ?? "The stream stopped.")
+                }
+            })
+            itemObservers.append(center.addObserver(
+                forName: AVPlayerItem.playbackStalledNotification, object: item, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.stalled()
+                }
+            })
+        }
+
+        /// A stall is often a few seconds of buffering. Only one that hasn't
+        /// recovered after a while counts as stopped.
+        private func stalled() {
+            stallCheck?.cancel()
+            stallCheck = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled, let self, let player = self.player else { return }
+                if player.timeControlStatus != .playing {
+                    self.stopped("The stream stopped loading. The provider may have closed it.")
+                }
+            }
+        }
+
+        private func stopped(_ reason: String) {
+            guard !reportedStop else { return }
+            reportedStop = true
+            onError(reason)
         }
 
         private func statusChanged(_ status: AVPlayerItem.Status, reason: String?) {
@@ -128,7 +177,7 @@ struct LivePreviewView: UIViewRepresentable {
                 view?.backgroundColor = .black
             case .failed:
                 onFailure()
-                onError(reason ?? "This channel couldn't be played.")
+                stopped(reason ?? "This channel couldn't be played.")
             default:
                 break
             }
@@ -149,6 +198,10 @@ struct LivePreviewView: UIViewRepresentable {
         func stop() {
             statusObservation?.invalidate()
             statusObservation = nil
+            itemObservers.forEach(NotificationCenter.default.removeObserver)
+            itemObservers = []
+            stallCheck?.cancel()
+            stallCheck = nil
             player?.pause()
             player?.replaceCurrentItem(with: nil)
             player = nil

@@ -53,9 +53,14 @@ struct MultiviewView: View {
             return "Multiview plays channels as HLS, which this provider doesn't offer."
         }
         if app.multiviewLimit < 2 {
-            return "This account allows one connection at a time, and every channel on screen is a connection. Multiview needs an account with two or more."
+            return "Your provider reports one connection for this account, and every channel on screen is a connection. Providers don't always enforce what they report, so you can try anyway. A channel the provider refuses or cuts off will say so."
         }
         return nil
+    }
+
+    /// The connection count is a reason the viewer can overrule. No HLS isn't.
+    private var canTryAnyway: Bool {
+        app.previewSupported && app.multiviewLimit < 2
     }
 
     var body: some View {
@@ -215,10 +220,19 @@ struct MultiviewView: View {
                 .foregroundStyle(Theme.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 1000)
-            Button("Close") {
-                app.multiview.isShowing = false
+            HStack(spacing: 24) {
+                if canTryAnyway {
+                    Button("Try anyway") {
+                        // Kept, so this screen doesn't come back. Settings can undo it.
+                        app.multiviewIgnoresLimit = true
+                    }
+                    .buttonStyle(TVActionButtonStyle(prominent: true))
+                }
+                Button("Close") {
+                    app.multiview.isShowing = false
+                }
+                .buttonStyle(TVActionButtonStyle(prominent: !canTryAnyway))
             }
-            .buttonStyle(TVActionButtonStyle(prominent: true))
         }
         .padding(80)
     }

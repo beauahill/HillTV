@@ -9,14 +9,18 @@ public enum Multiview {
     /// its own connection to the provider, so the account's limit is the
     /// real ceiling. A panel that doesn't say gets the benefit of the doubt:
     /// a tile it refuses shows an error instead.
-    public static func tileLimit(maxConnections: Int?) -> Int {
-        guard let maxConnections else { return mostTiles }
+    ///
+    /// `ignoringLimit` is the viewer's choice to try more than the account
+    /// reports. What a panel reports and what it enforces can differ, and
+    /// only trying shows which.
+    public static func tileLimit(maxConnections: Int?, ignoringLimit: Bool = false) -> Int {
+        guard let maxConnections, !ignoringLimit else { return mostTiles }
         return min(mostTiles, max(1, maxConnections))
     }
 
     /// Multiview needs room for at least two channels.
-    public static func isAvailable(maxConnections: Int?) -> Bool {
-        tileLimit(maxConnections: maxConnections) >= 2
+    public static func isAvailable(maxConnections: Int?, ignoringLimit: Bool = false) -> Bool {
+        tileLimit(maxConnections: maxConnections, ignoringLimit: ignoringLimit) >= 2
     }
 
     /// Columns and rows for a number of cells: one, two side by side, or a

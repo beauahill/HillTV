@@ -14,6 +14,15 @@ final class MultiviewTests: XCTestCase {
         XCTAssertEqual(Multiview.tileLimit(maxConnections: nil), 4)
     }
 
+    func testViewerCanChooseToTryPastTheReportedLimit() {
+        XCTAssertEqual(Multiview.tileLimit(maxConnections: 1, ignoringLimit: true), 4)
+        XCTAssertEqual(Multiview.tileLimit(maxConnections: 2, ignoringLimit: true), 4)
+        XCTAssertEqual(Multiview.tileLimit(maxConnections: nil, ignoringLimit: true), 4)
+        XCTAssertTrue(Multiview.isAvailable(maxConnections: 1, ignoringLimit: true))
+        // Off is the default, and the account's count stands.
+        XCTAssertEqual(Multiview.tileLimit(maxConnections: 1, ignoringLimit: false), 1)
+    }
+
     func testAvailability() {
         XCTAssertFalse(Multiview.isAvailable(maxConnections: 1))
         XCTAssertTrue(Multiview.isAvailable(maxConnections: 2))
