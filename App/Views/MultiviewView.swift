@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// Sound follows focus. Select shows the focused channel full screen and
 /// Select or Menu brings the grid back; the other channels keep playing
-/// underneath, so nothing reconnects. Hold Select to remove a channel.
+/// underneath, so nothing reconnects. Hold Select opens a menu with Remove.
 ///
 /// Every tile is its own connection to the provider, so the account's
 /// connection count caps the number of tiles (`AppModel.multiviewLimit`).
@@ -195,7 +195,7 @@ struct MultiviewView: View {
             }
             Spacer()
             if showsHint, fullScreenID == nil, !picking, !tiles.isEmpty {
-                Banner(text: "Select: full screen. Hold Select: remove. Menu: close.")
+                Banner(text: "Select: full screen. Hold Select: more. Menu: close.")
             }
         }
         .padding(48)

@@ -16,8 +16,9 @@ struct ChannelMove: Identifiable {
 ///
 /// Up and down are ordinary focus moves between rows. The rows are slots,
 /// identified by position, and the moving channel is drawn in whichever slot
-/// has focus, with the others closing up around it. Select drops it there.
-/// Menu closes the page, like any full-screen cover, and nothing changes.
+/// has focus, with the others closing up around it. Select drops it there,
+/// and only there: a press on any other row brings the channel to that row
+/// first. Menu closes the page, like any full-screen cover, and nothing changes.
 ///
 /// Built on focus moving row to row, which is known to work on the TV,
 /// rather than on catching the remote's arrows with the list held still.
@@ -70,8 +71,16 @@ struct MoveChannelView: View {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(0..<count, id: \.self) { slot in
                             Button {
-                                onDrop(slot)
-                                dismiss()
+                                if slot == target {
+                                    onDrop(slot)
+                                    dismiss()
+                                } else {
+                                    // Focus never reached the moving row, so
+                                    // the channel isn't drawn here yet. Bring
+                                    // it here first; the next Select drops it.
+                                    target = slot
+                                    armed = true
+                                }
                             } label: {
                                 MoveRow(stream: stream(at: slot), position: slot + 1, isMoving: slot == target)
                             }

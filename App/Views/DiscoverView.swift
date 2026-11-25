@@ -5,7 +5,9 @@ import SwiftUI
 /// Something the Discover page can show in its billboard.
 enum BillboardItem: Hashable {
     case live(LiveStream)
-    case resume(WatchEntry)
+    /// A continue-watching entry, by its ID. The entry itself changes every
+    /// few seconds of playback, so it is read from the store when needed.
+    case resume(String)
     case movie(VODStream)
     case series(SeriesItem)
 }
@@ -68,12 +70,18 @@ struct DiscoverView: View {
 
     /// Before anything has had focus, lead with the first thing on the page.
     private var billboardItem: BillboardItem? {
-        if let shown { return shown }
+        if let shown, stillThere(shown) { return shown }
         if let stream = app.favorites.channels.first { return .live(stream) }
-        if let entry = app.watchHistory.entries.first { return .resume(entry) }
+        if let entry = app.watchHistory.entries.first { return .resume(entry.id) }
         if let movie = catalog.movieRails.first?.items.first { return .movie(movie) }
         if let series = catalog.seriesRails.first?.items.first { return .series(series) }
         return nil
+    }
+
+    /// A finished or removed continue-watching entry leaves the billboard.
+    private func stillThere(_ item: BillboardItem) -> Bool {
+        if case .resume(let id) = item { return app.watchHistory.entry(id: id) != nil }
+        return true
     }
 
     var body: some View {
@@ -193,7 +201,10 @@ struct DiscoverView: View {
             }
             return content
 
-        case .resume(let entry):
+        case .resume(let id):
+            guard let entry = app.watchHistory.entry(id: id) else {
+                return BillboardContent(eyebrow: AnyView(Eyebrow(text: "Continue watching")), title: " ")
+            }
             var parts: [String] = []
             if let subtitle = entry.subtitle { parts.append(subtitle) }
             if let duration = entry.duration, duration > entry.position {
@@ -254,9 +265,12 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(TVActionButtonStyle())
 
-            case .resume(let entry):
+            case .resume(let id):
                 Button {
-                    nowPlaying = PlayableItem.resuming(entry, client: model.client)
+                    // The entry as it is now, not as it was when focus was on it.
+                    if let entry = app.watchHistory.entry(id: id) {
+                        nowPlaying = PlayableItem.resuming(entry, client: model.client)
+                    }
                 } label: {
                     Label("Resume", systemImage: "play.fill")
                 }
@@ -355,7 +369,7 @@ struct DiscoverView: View {
                         )
                     }
                     .buttonStyle(TVCardButtonStyle())
-                    .focused($focus, equals: Tile(rail: rail, item: .resume(entry)))
+                    .focused($focus, equals: Tile(rail: rail, item: .resume(entry.id)))
                     .contextMenu {
                         Button("Remove from Continue Watching", role: .destructive) {
                             app.watchHistory.remove(id: entry.id)
