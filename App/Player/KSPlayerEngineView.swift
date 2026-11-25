@@ -143,9 +143,11 @@ struct KSPlayerTileView: View {
     var body: some View {
         KSVideoPlayer(coordinator: coordinator, url: url, options: options)
             .onStateChanged { _, _ in
-                // The player doesn't exist when mute is first set, so set it
-                // again as the player comes up.
-                setMuted(muted)
+                // The player may not exist when mute is first set, and the
+                // coordinator only passes mute on when it is assigned. So
+                // assign it again as the player comes up, even though the
+                // value is the same.
+                coordinator.isMuted = muted
             }
             .onFinish { _, error in
                 onError(error?.localizedDescription ?? "The stream ended. The provider may have closed it.")
@@ -159,7 +161,8 @@ struct KSPlayerTileView: View {
             }
     }
 
-    /// Only on a change: the coordinator announces every assignment.
+    /// Only on a change: the coordinator announces every assignment. Not
+    /// for the state handler above, which must assign regardless.
     private func setMuted(_ value: Bool) {
         if coordinator.isMuted != value {
             coordinator.isMuted = value
