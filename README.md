@@ -18,7 +18,7 @@ The live preview uses one of your provider's connections while it plays. It is o
 
 ## Google TV
 
-`android/` holds the same app for Google TV and Android TV: Kotlin, Jetpack Compose, Media3 ExoPlayer. Same look, same sections, same Xtream login. The logic in `android/core` is a port of `Packages/HillTVCore`, file for file, with the same tests.
+`android/` holds the same app for Google TV and Android TV: Kotlin, Jetpack Compose, Media3 ExoPlayer. Same look, same sections, same Xtream login. The logic in `android/core` is a port of `Packages/HillTVCore`, file for file apart from the Apple-only player routing, with the same tests.
 
 It has been run in the Android TV emulator against a pretend provider (`Tools/mock_xtream.py`), not yet on a real TV or a real provider, and it has never played a real MPEG-TS stream. CLAUDE.md lists what was checked and what wasn't.
 
@@ -26,7 +26,7 @@ What is different from the Apple TV app:
 
 - One player. ExoPlayer plays HLS, raw MPEG-TS, mkv and mp4 itself, so there is no player choice. Settings has a live stream format instead: HLS (the default) or MPEG-TS, which runs closer to the broadcast.
 - Back at the top of a section goes to the rail. Back on the rail leaves the app, which is what Google TV expects.
-- Holding Select on a channel adds or removes the favorite straight away and says so at the bottom of the screen. There is no menu in between.
+- Holding Select opens a full-screen list of what you can do (favorite, multiview, move), because Android TV has no pop-up menu like the Apple TV's.
 - Search has its own box. Press Select on it to bring up the TV's keyboard.
 - A live channel that drops is reconnected up to three times before the error screen shows.
 

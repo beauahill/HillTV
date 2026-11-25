@@ -34,12 +34,18 @@ import com.beauahill.hilltv.core.GameChannelMatch.Strength
 import com.beauahill.hilltv.core.LiveStream
 import com.beauahill.hilltv.core.SportsGame
 import com.beauahill.hilltv.core.SportsTeam
+import com.beauahill.hilltv.core.displayName
 
 // Views for games in the Sports pill of Live TV. Scores and logos come from
 // `ScoreboardStore`; which channel carries a game comes from `GameMatcher`.
 
 /** A game and the channels offered for it, for the "where to watch" list. */
-class GamePick(val game: SportsGame, val matches: List<GameChannelMatch>)
+class GamePick(
+    val game: SportsGame,
+    val matches: List<GameChannelMatch>,
+    /** The chosen channel goes into the multiview instead of the player. */
+    val forMultiview: Boolean = false,
+)
 
 /**
  * Team logo loaded from the scores feed, on a round badge. Falls back to
@@ -112,10 +118,11 @@ private fun TeamLine(game: SportsGame, team: SportsTeam) {
 private fun gameChannelText(matches: List<GameChannelMatch>, channelsLoaded: Boolean): String {
     val sure = matches.filter { it.strength == Strength.TEAMS }
     sure.firstOrNull()?.let { first ->
-        return if (sure.size > 1) "${first.stream.name} +${sure.size - 1}" else first.stream.name
+        val name = first.stream.displayName.title
+        return if (sure.size > 1) "$name +${sure.size - 1}" else name
     }
     matches.firstOrNull()?.let { first ->
-        return if (matches.size == 1) "Maybe ${first.stream.name}" else "Maybe on ${matches.size} channels"
+        return if (matches.size == 1) "Maybe ${first.stream.displayName.title}" else "Maybe on ${matches.size} channels"
     }
     return if (channelsLoaded) "No matching channel" else "Finding channels"
 }
@@ -162,7 +169,7 @@ fun GameDetailPane(game: SportsGame, matches: List<GameChannelMatch>, channelsLo
                 for (match in sure.ifEmpty { matches }.take(3)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         ChannelLogo(match.stream.iconURL, width = 36.dp, height = 24.dp)
-                        Txt(match.stream.name, style = Type.meta, color = Theme.text, maxLines = 1)
+                        ChannelNameLabel(match.stream.displayName, style = Type.meta, layout = NameLayout.INLINE, color = Theme.text)
                     }
                 }
                 if (sure.isEmpty()) {
@@ -210,7 +217,7 @@ private fun ScoreboardCenter(game: SportsGame) {
 @Composable
 fun GameChannelPicker(pick: GamePick, onPick: (LiveStream) -> Unit) {
     val first = rememberInitialFocus()
-    CoverPage("Where to watch", "${pick.game.away.shortName} at ${pick.game.home.shortName}") {
+    CoverPage(if (pick.forMultiview) "Add to Multiview" else "Where to watch", "${pick.game.away.shortName} at ${pick.game.home.shortName}") {
         LazyColumn(
             Modifier.widthIn(max = 600.dp),
             contentPadding = PaddingValues(6.dp),
@@ -224,7 +231,10 @@ fun GameChannelPicker(pick: GamePick, onPick: (LiveStream) -> Unit) {
                 ) {
                     ChannelLogo(match.stream.iconURL)
                     Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Txt(match.stream.name, style = Type.meta, maxLines = 1, weight = FontWeight.SemiBold)
+                        ChannelNameLabel(
+                            match.stream.displayName,
+                            style = Type.meta, layout = NameLayout.INLINE, weight = FontWeight.SemiBold, inFocusRow = true,
+                        )
                         Txt(
                             if (match.strength == Strength.TEAMS) "Names both teams" else "Carries the network, may be a different game",
                             style = Type.small, color = secondaryColor(), maxLines = 1,

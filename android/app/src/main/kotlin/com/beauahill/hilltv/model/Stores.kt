@@ -10,7 +10,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beauahill.hilltv.core.CatalogKind
 import com.beauahill.hilltv.core.CategoryVisibility
+import com.beauahill.hilltv.core.ChannelOrder
 import com.beauahill.hilltv.core.LiveStream
+import com.beauahill.hilltv.core.Multiview
+import com.beauahill.hilltv.core.MultiviewTiles
 import com.beauahill.hilltv.core.WatchEntry
 import com.beauahill.hilltv.core.WatchHistory
 import com.beauahill.hilltv.core.XtreamAccount
@@ -121,6 +124,21 @@ class FavoritesStore(private val prefs: SharedPreferences) {
 
     fun toggle(stream: LiveStream) {
         channels = if (contains(stream.id)) channels.filter { it.id != stream.id } else channels + stream
+        persist()
+    }
+
+    /**
+     * Puts a favorite at `index`. The order here is the order everywhere
+     * favorites are listed: the Favorites page, Live TV, the Guide and Home.
+     */
+    fun move(streamID: Int, index: Int) {
+        val from = channels.indexOfFirst { it.id == streamID }
+        if (from < 0) return
+        channels = ChannelOrder.moving(channels, from, index)
+        persist()
+    }
+
+    private fun persist() {
         prefs.edit().putString(KEY, buildJsonArray { channels.forEach { add(it.toJson()) } }.toString()).apply()
     }
 
@@ -251,5 +269,134 @@ class CategoryVisibilityStore(private val prefs: SharedPreferences) {
 
     private companion object {
         const val KEY = "hiddenCategories.v1"
+    }
+}
+
+/**
+ * The order the viewer gave their channel lists, for the signed-in account.
+ *
+ * Small JSON in preferences, one entry per account, kept on sign out like
+ * hidden categories. `ChannelOrder` stores only the top of each list the
+ * viewer has changed, so it stays small. Favorites are not in here: their
+ * order is the order of `FavoritesStore.channels`.
+ */
+class ChannelOrderStore(private val prefs: SharedPreferences) {
+    var order: ChannelOrder by mutableStateOf(ChannelOrder())
+        private set
+    private var accountKey: String? = null
+
+    fun activate(account: XtreamAccount) {
+        val key = accountKey(account)
+        accountKey = key
+        order = ChannelOrder.fromJson(loadAll()[key])
+    }
+
+    /** Signing out forgets who is active but leaves the saved order alone. */
+    fun deactivate() {
+        accountKey = null
+        order = ChannelOrder()
+    }
+
+    fun hasOrder(categoryID: String): Boolean = order.hasOrder(categoryID)
+
+    /** A category's channels in the viewer's order. */
+    fun apply(streams: List<LiveStream>, categoryID: String): List<LiveStream> = order.apply(streams, categoryID)
+
+    /** `shown` is the category's channels as they are listed now. */
+    fun move(streamID: Int, index: Int, shown: List<LiveStream>, categoryID: String) {
+        order = order.move(streamID, index, shown.map { it.id }, categoryID)
+        persist()
+    }
+
+    fun reset(categoryID: String) {
+        order = order.reset(categoryID)
+        persist()
+    }
+
+    private fun loadAll(): Map<String, JsonElement> =
+        (parseOrNull(prefs.getString(KEY, null)) as? JsonObject) ?: emptyMap()
+
+    private fun persist() {
+        val key = accountKey ?: return
+        val all = loadAll().toMutableMap()
+        if (order.isEmpty) all.remove(key) else all[key] = order.toJson()
+        prefs.edit().putString(KEY, JsonObject(all).toString()).apply()
+    }
+
+    private companion object {
+        const val KEY = "channelOrder.v1"
+    }
+}
+
+/**
+ * The channels in the multiview and whether it is on screen. Kept for as
+ * long as the app runs, so closing the multiview to find another channel
+ * doesn't lose the ones already picked. Not saved between launches.
+ */
+class MultiviewStore {
+    var tiles: MultiviewTiles by mutableStateOf(MultiviewTiles())
+        private set
+
+    /** `MainShell` shows the multiview full screen while this is true. */
+    var isShowing: Boolean by mutableStateOf(false)
+
+    /** A short message shown over the multiview, such as "full". The screen clears it after a while. */
+    var notice: String? by mutableStateOf(null)
+        private set
+
+    /**
+     * A channel that would go past the connections the account reports.
+     * The multiview asks the viewer about it, then adds or drops it.
+     */
+    var waiting: LiveStream? by mutableStateOf(null)
+        private set
+
+    /** From a hold-Select menu: adds the channel and opens the multiview. */
+    fun addAndOpen(stream: LiveStream, limit: Int) {
+        add(stream, limit)
+        isShowing = true
+    }
+
+    /**
+     * Adds a channel if there is room. When the account's reported
+     * connections are what's in the way, the channel waits for the viewer's
+     * answer instead; when the screen is full, it is dropped with a notice.
+     */
+    fun add(stream: LiveStream, limit: Int) {
+        val (next, result) = tiles.add(stream, limit)
+        tiles = next
+        if (result != MultiviewTiles.AddResult.FULL) return
+        if (limit < Multiview.MOST_TILES) {
+            waiting = stream
+        } else {
+            notice = "Multiview shows four channels at most. Remove one to add another."
+        }
+    }
+
+    /** The viewer said yes: add the waiting channel under the new limit. */
+    fun addWaiting(limit: Int) {
+        val stream = waiting ?: return
+        waiting = null
+        add(stream, limit)
+    }
+
+    /** The viewer said no, or closed the question. */
+    fun dropWaiting() {
+        waiting = null
+    }
+
+    fun remove(streamID: Int) {
+        tiles = tiles.remove(streamID)
+    }
+
+    fun clearNotice() {
+        notice = null
+    }
+
+    fun clear() {
+        tiles = MultiviewTiles()
+        isShowing = false
+        notice = null
+        waiting = null
     }
 }

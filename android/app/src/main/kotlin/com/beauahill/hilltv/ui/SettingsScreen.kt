@@ -26,6 +26,7 @@ import com.beauahill.hilltv.core.PlaybackSettings.LiveBuffer
 import com.beauahill.hilltv.core.PlaybackSettings.LiveDelay
 import com.beauahill.hilltv.core.XtreamCategory
 import com.beauahill.hilltv.core.XtreamClient
+import com.beauahill.hilltv.core.displayName
 import com.beauahill.hilltv.model.AppModel
 import com.beauahill.hilltv.model.CategoryVisibilityStore
 import com.beauahill.hilltv.model.LivePreviewMode
@@ -110,6 +111,18 @@ fun SettingsScreen() {
             Note("Most of the delay comes from how your provider packages the stream, which the app can't change. Live delay only affects HLS; MPEG-TS avoids that packaging altogether. Changes take effect the next time you start a channel.")
         }
 
+        SettingsCard("Multiview") {
+            ChoiceRow("Follow the account's connections", !app.multiviewIgnoresLimit) { app.multiviewIgnoresLimit = false }
+            ChoiceRow("Try up to four channels", app.multiviewIgnoresLimit) { app.multiviewIgnoresLimit = true }
+            Note(multiviewSummary(app))
+
+            if (app.multiviewTSAvailable) {
+                ChoiceRow("Play channels as HLS", !app.multiviewUsesTS) { app.multiviewUsesTS = false }
+                ChoiceRow("Play channels as MPEG-TS (trial)", app.multiviewUsesTS) { app.multiviewUsesTS = true }
+                Note("If channels in the multiview keep stopping each other, try MPEG-TS. It asks your provider for each channel in a different way, which some providers count differently. It may make no difference.")
+            }
+        }
+
         SettingsCard("Categories") {
             TVRow(onClick = { showingCategories = true }, textStyle = Type.meta) {
                 Txt("Choose what to show", Modifier.weight(1f), maxLines = 1)
@@ -167,6 +180,15 @@ private fun delayDetail(delay: LiveDelay): String = when (delay) {
         "After the stream pauses to load, the player skips ahead to where it would have been, so the delay doesn't grow over time."
     LiveDelay.CLOSEST ->
         "Keeps up, and also plays at about half the usual distance behind the broadcast. Expect more pauses on a weak connection."
+}
+
+private fun multiviewSummary(app: AppModel): String {
+    val reported = when (val count = app.reportedConnections) {
+        null -> "Your provider doesn't say how many connections this account has."
+        1 -> "Your provider reports 1 connection for this account."
+        else -> "Your provider reports $count connections for this account."
+    }
+    return "$reported Every channel in the multiview is a connection. Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
 }
 
 private fun hiddenSummary(app: AppModel): String {
@@ -347,11 +369,7 @@ fun CategoryManagerScreen(client: XtreamClient, store: CategoryVisibilityStore) 
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Icon(if (hidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, size = 14.dp)
-                                        Txt(
-                                            category.name,
-                                            style = LocalTextStyle.current.copy(textDecoration = if (hidden) TextDecoration.LineThrough else null),
-                                            maxLines = 1,
-                                        )
+                                        CategoryNameLabel(category.displayName, strikethrough = hidden)
                                     }
                                 }
                             }

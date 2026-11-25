@@ -179,7 +179,7 @@ A port of the Apple TV app to Kotlin, Jetpack Compose and Media3 ExoPlayer (Nov 
 ```
 cd android
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64   # the laptop's default java is 25; Gradle wants 21 here
-./gradlew :core:test                 # 88 JUnit cases: the 84 from HillTVCore plus 4 Android-only
+./gradlew :core:test                 # 129 JUnit cases: HillTVCore's, less PlayerRouting, plus a few Android-only
 ./gradlew :app:assembleDebug
 ./gradlew :app:assembleRelease       # R8 shrunk, about 3 MB, signed with the debug key unless HILLTV_KEYSTORE is set
 ```
@@ -192,8 +192,8 @@ Run in the Android TV emulator (API 34, 1080p) against `Tools/mock_xtream.py`, d
 
 - Sign in with the remote and the TV keyboard, the saved login coming back after a restart, and Sign Out (back to the login page, saved login and history gone).
 - The app is listed for the TV launcher (`LEANBACK_LAUNCHER` resolves to `MainActivity`). The banner on the home screen was not looked at.
-- Home (hero, favorites card, continue watching, rails), the rail widening and collapsing, Back to the rail.
-- Live TV: pills, chips, the category grid, the channel list with guide progress, the detail pane, the live preview, hold Select to favorite, Sports > Games with real scores from ESPN.
+- The old Home (hero, favorites card, continue watching, rails; since replaced by the billboard page, below), the rail widening and collapsing, Back to the rail.
+- Live TV: pills, chips, the category grid, the channel list with guide progress, the detail pane, the live preview, hold Select to favorite (now through the hold menu, below), Sports > Games with real scores from ESPN.
 - The player: a live HLS channel, a movie with resume, an episode. Back closes it and focus returns to the row or button it came from. A dead channel (HTTP 404) retries, then shows the error screen with Close focused. With "Closest to live" picked, the HLS channel played with no error and sat nearer the end of the pretend panel's six-second window; that is all that was seen of it.
 - Picking MPEG-TS in Settings, the `.ts` address being requested, and the player asking again when that stream ends. But see the next paragraph: no MPEG-TS data was ever played.
 - Guide grid, Movies, Series, detail pages, Search with results while typing, Settings, hiding and showing categories.
@@ -202,14 +202,34 @@ The pretend panel has no MPEG-TS to give. GStreamer on the laptop has no TS muxe
 
 Not run at all: a real Google TV or Android TV box, a real provider, real MPEG-TS (above), "Keep up", a one-connection account with the preview on, sound (the emulator ran without audio), 4K, surround formats (AC3, DTS depend on the box), a real remote's long press (adb's long press was used), the TV's own keyboard on a real box. No game ever matched a channel, because the pretend panel's channel names have no real teams in them, so tuning from a game and the channel picker were never reached. Treat all of these as unverified.
 
-GitHub Actions has not run `android.yml` yet: it was written and never pushed. The only way to see it run is to push the branch and open a pull request, which also starts the tvOS build in `build.yml` (pull requests don't publish a release).
+`android.yml` has run on pull request beauahill/HillTV#2 (the first push of `android-tv`): core tests passed and it kept the release APK as an artifact. The same pull request also starts the tvOS build in `build.yml`, which doesn't publish a release from a pull request; on that first run its `build` job showed as cancelled with no failed step, cause not looked into.
 
-Where the Kotlin core is deliberately not the Swift one: lists decode as a stream (below), values are immutable, URLs are strings, and number-like strings are parsed more strictly (plain decimal only, where Swift's `Double("nan")` and hex floats also pass). The two hand-written URL encoders are held to Foundation's exact output for every ASCII punctuation character by `testEncodersMatchFoundationForEveryPunctuationCharacter`; the expected strings came from the `swift:6.2` image on Linux.
+Where the Kotlin core is deliberately not the Swift one: lists decode as a stream (below), values are immutable, URLs are strings, and number-like strings are parsed more strictly (plain decimal only, where Swift's `Double("nan")` and hex floats also pass). `PlayerRouting.swift` has no twin (see below), and `CharacterSets.kt` has no Swift one: it holds Foundation's whitespace and letter sets for the two name parsers. The two hand-written URL encoders are held to Foundation's exact output for every ASCII punctuation character by `testEncodersMatchFoundationForEveryPunctuationCharacter`; the expected strings came from the `swift:6.2` image on Linux.
+
+### Caught up with the Apple TV app (Nov 25, 2026)
+
+Everything on `main` up to Build 56 was merged into `android-tv` and ported: channel and category names without the provider's labels, Guide > Favorites, reorder (Move mode), multiview with its Settings card, the billboard Home, and each Movies and Series category opening at the top of its grid. Run in the emulator against the pretend panel (which now uses provider-style names, with `|NA|`, `VOD - ... [EN]` and `SRS - ... [EN}` among them):
+
+- The billboard follows focus, keeps its height and the art changes per item. Watch live, Add to Multiview (Open Multiview once added) and a movie's Details were pressed and do what they say; Play on a movie and Resume were seen; Episodes was shown but not pressed.
+- Hold Select opens the menu on Live TV rows, Guide cells, Favorites, Home's live cards and Continue watching, multiview tiles and Search results (Search offers Favorites only, as on tvOS).
+- Move: the channel rides the focused row, Select drops it, the list comes back with focus on it. It opens with the channel in view and focused even 32 rows down a 36-channel list. The Guide shows the same order as Live TV and Move opens from it. A category's order survived sign out and sign in; "Use the provider's order" undid it. Favorites order shows on the Favorites page.
+- Multiview: open from a menu, add from the plus tile, full screen and back, Remove, Close. No player restarted on going full screen or opening a menu over the grid (counted in the log). With the panel at one connection, the second channel asked first, and "Try anyway" added it. Closing it brings back Live TV on the same row with the preview playing again. The plus tile at the limit asks first; Try anyway then opens the list, and the new tile takes focus. The TV's Home button stopped every tile and coming back started them again.
+- The MPEG-TS trial: tiles behaved like the raw stream (they ended with the clip), but the panel ran quietly, so the `.ts` requests themselves weren't logged. The pretend panel's raw stream ends after its clip, so tiles showed "The stream stopped", and Select on one started it again.
+
+The release build was installed fresh and used for the later checks (sign in, Home, Search, Move, multiview, Continue watching). Continue watching needs 30 seconds played, as on tvOS.
+
+Not seen: a game's hold menu (no game matched a channel on the pretend panel), the decoder-limit message on a tile (the emulator never ran out), four tiles on real hardware, a drop in the Guide's Move that changes the order (it opened on the last row, so there was nowhere further to go), each Movies and Series category opening at the top of its grid, the labels in Settings > Categories, removing a favorite from inside the Guide, and Favorites order showing in Live TV, the Guide and Home. After Search closes and Back goes to the rail, the rail lights Search rather than the section; seen once, not looked into, and the rail code didn't change in this work. A real box may run only one or two video decoders at once; a tile that hits that says so rather than blaming the provider.
+
+One port bug turned up and was fixed: going up from a movie through the live cards to the billboard's buttons switched the billboard to the card passed through, because a tile only ever set the pending item and never cleared it. A tile losing focus now cancels it, as `.task(id: focus)` does on tvOS. Two older bugs turned up and were fixed too. Removing a favorite from its own menu left focus on the rail; `MainShell` now puts focus back in the content when a cover closes onto nothing. And Back with the TV keyboard up hid the keyboard but left the text box typing, so Down did nothing; Up or Down now end typing and move on.
+
+`PlayerRouting.swift` (`MediaContainer`, `ProgressTracker`) has no Kotlin twin: it only chooses between the Apple player and KSPlayer, and ExoPlayer plays everything and reports progress itself.
+
+By the porting helper's report (the comparison ran in a scratch folder, not kept in the repo, and was not rerun by hand), the name parsers were held to Swift's output on about 8,000 made-up names and on every assigned code point in several positions. They match except on contrived input: a combining mark or joiner straight after a separator (Swift counts the pair as one character), Tangut letters (Foundation on Linux doesn't call them letters; tvOS not checked), and a few dozen marks inside a region marker. `SearchIndex.fold` differs more widely: it strips every mark after NFKD, where Foundation keeps compatibility characters and spacing marks, so search and game matching can differ on non-Latin names. Left alone; `ChannelName` is shielded from it.
 
 ### Layout
 
 ```
-android/core/                      Plain Kotlin, no Android imports. The twin of Packages/HillTVCore, file for file.
+android/core/                      Plain Kotlin, no Android imports. The twin of Packages/HillTVCore, file for file except as noted above.
 android/core/src/test/             The same tests with the same payloads.
 android/app/.../MainActivity.kt    The one activity. BackFirstLayout: see "Back" below.
 android/app/.../model/             AppModel (session, settings, what is playing), stores, EPGStore, LiveTVModel, ScoreboardStore
@@ -217,12 +237,16 @@ android/app/.../player/            PlayableItem, PlayerScreen + PlayerSession (E
 android/app/.../ui/Theme.kt        Color and type tokens
 android/app/.../ui/Controls.kt     FocusBox and the controls built on it: TVRow, TVAction, TVPill, TVChip, TVCard
 android/app/.../ui/Shell.kt        HillTVRoot, Covered, FullScreenCover, MainShell, Sidebar (the rail)
-android/app/.../ui/                One file per screen, with its model beside it where tvOS does the same
+android/app/.../ui/HoldMenu.kt     The hold-Select menu (a full-screen list) and its common actions
+android/app/.../ui/                One file per screen, with its model beside it where tvOS does the same: Home (billboard), Multiview, MoveChannel, Live TV, Guide, ...
 Tools/mock_xtream.py               A pretend panel. Made-up catalog, messy on purpose. Optional video with --media.
 ```
 
 ### Patterns to keep
 
+- Covers stack. `HillTVRoot` nests one `Covered` per entry in `CoverHost`, so a page opened over the multiview (its list, the connection question, a menu) leaves the tiles composed and playing. Swapping one cover for another (a menu that opens Move) passes `coverKey`, so focus goes into the new one and still returns to the control from before the first. The hold menu is the topmost cover, declared after the shell.
+- The section under a cover keeps running. Anything there that holds a connection or polls must stop itself: Live TV's preview checks Move, the menu, the multiview and the player; scores check the multiview.
+- Multiview tiles are `LivePreview` (one ExoPlayer each) inside one `Layout` keyed by stream ID, so going full screen only moves a tile and never rebuilds its player. A decoder failure (`isDecoderError`) reads as the device's limit, not the provider's.
 - Keep the two cores in step. A change to `Packages/HillTVCore` gets the same change in `android/core`, and the test with it. Kotlin names match the Swift ones (`EPGSchedule`, `VODStream`, `GameMatcher`) so they can be read side by side. URLs are plain strings in the Kotlin core, and the value types are immutable: `history = history.record(entry)` where Swift mutates in place.
 - Sizes are the tvOS numbers halved. tvOS lays out on 1920 x 1080 points and a 1080p Android TV is 960 x 540 dp, so 28 pt text is 14 sp and both draw the same pixels. `ui/Theme.kt` is the twin of `Theme.swift`; change a token in one, change it in the other.
 - Lists load as a stream. `XtreamClient.getList` decodes one row at a time off the response (`decodeLossyList`) and never builds the whole JSON tree, because an Android TV app gets a few hundred megabytes of heap at best and a big provider's channel list would not fit as a tree. Don't replace it with "read the body, parse, map".
@@ -232,7 +256,7 @@ Tools/mock_xtream.py               A pretend panel. Made-up catalog, messy on pu
 - Search takes its section down while it is open, as on tvOS. The control that opened it is gone when it closes, so `MainShell` puts focus back in the content itself, after the cover has finished closing.
 - Back. `BackFirstLayout` in `MainActivity` takes the Back key before the system's keyboard service sees it, unless the keyboard is showing. Without it the first Back after the video view took focus did nothing, every time, in the emulator: the keyboard service swallowed it. Each cover adds a `BackHandler`; `MainShell`'s own is declared first so anything opened inside a section wins over it. Back at a section's root goes to the rail. Back on the rail leaves the app, which Google TV's guidelines ask for; this is the opposite of what Beau asked for on the Apple TV, so check he is happy with it.
 - Focus moves by geometry, comparing whole rows by their centers. Two things follow. Down from a Live TV pill used to skip the chip row and land in the channel list, because the narrow list sits more squarely under a pill than the full-width chip row; each pill now names the chip row as its Down. And a list keeps its place when rows are added above, so the Sports list scrolls to the top when games arrive. Expect the same two traps in any new screen with a full-width row above a narrow column.
-- Text fields are `TVTextField`. Focus landing on one does not open the keyboard; Select does. Next carries on into the next field. To move focus when typing is done, use a `FocusRequester` in `onDone`: while the keyboard is up the window is shorter, what is below may be off screen, and "move down" wraps to the top instead.
+- Text fields are `TVTextField`. Focus landing on one does not open the keyboard; Select does. Up or Down while typing end typing and move focus on: Back with the keyboard up only hides the keyboard, and on the emulator's TV keyboard the arrows only reach the field once the keyboard is gone. Not checked on a real box's keyboard; if one passes arrows through while it shows, this would end typing early. Next carries on into the next field. To move focus when typing is done, use a `FocusRequester` in `onDone`: while the keyboard is up the window is shorter, what is below may be off screen, and "move down" wraps to the top instead.
 - One player. `PlayerSession` wraps ExoPlayer, which plays HLS, raw MPEG-TS, mkv and mp4, so there is no engine choice and nothing like KSPlayer. Settings > Live stream format picks HLS (default) or MPEG-TS; `AppModel.liveFormat` falls back to what the panel allows. The live preview is always HLS. The player view needs real Android focus so the remote can drive Media3's own controls, and `controllerAutoShow` must be turned off before the player is attached or the controls flash up at the start.
 - Live playback retries. A raw stream simply ends when the panel drops it, so `PlayerSession` asks again, up to three times in a row without a good stretch of playing in between, before showing the error. An ended stream needs `seekToDefaultPosition()` before `prepare()`; `prepare()` alone does nothing.
 - Playback settings keep the tvOS rule: the defaults leave the player alone. "Player's choice" for the live buffer installs no `LoadControl` at all (on tvOS the default is 4 seconds; ExoPlayer's own is larger). Live delay only applies to HLS, where there is a live window: "Closest to live" replaces the media item's live target once the stream's own is known, "Keep up" seeks back to the live edge after a stall. "Closest to live" played without error in the emulator; "Keep up" has never been triggered. Neither has been measured against a clock.
@@ -246,7 +270,8 @@ Beau has not seen this list yet. None of these were his picks; each was the near
 
 - Back on the rail leaves the app (see above).
 - No player choice; a live stream format choice instead.
-- Hold Select on a channel toggles the favorite at once and a line at the bottom says so. tvOS shows a one-item menu first. Same for removing something from Continue watching.
+- Hold Select opens a full-screen list of actions (`HoldMenu`), built like the other pickers. tvOS uses the system's context menu, which Android TV doesn't have. This look was not one of Beau's picks; offer mockups if he wants it changed.
+- The multiview's MPEG-TS trial is ExoPlayer asking for `.ts`, not KSPlayer, since there is one player. A provider that offers no HLS gets MPEG-TS tiles; tvOS shows "Multiview isn't available" there.
 - Search is a text box at the top of a full-screen page; Select on it opens the TV's keyboard. tvOS keeps its keyboard on screen.
 - The player's controls are Media3's stock ones with the title drawn over the top. They don't match the app, the same complaint as KSPlayer's.
 - The rail sits against the screen edge, as the Control Room mockup had it. On tvOS the safe area pushes it in.

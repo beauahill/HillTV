@@ -109,6 +109,9 @@ enum class CategoryGroup(val id: String, val title: String) {
             "caribbean", "haiti", "colombia", "argentina", "chile", "peru", "venezuela", "europe", "asia",
         )
 
+        /** Every country and language word above, for `ChannelName`. */
+        internal val regionWords: Set<String> = englishWords + foreignWords
+
         /**
          * Two-letter country codes, counted only as the first word ("FR | CINEMA").
          * Elsewhere they are too easily ordinary words. Codes that are common

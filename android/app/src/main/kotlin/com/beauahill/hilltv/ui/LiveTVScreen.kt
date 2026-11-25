@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -62,6 +63,7 @@ import com.beauahill.hilltv.core.LiveStream
 import com.beauahill.hilltv.core.Scoreboard
 import com.beauahill.hilltv.core.SportsGame
 import com.beauahill.hilltv.core.XtreamCategory
+import com.beauahill.hilltv.core.displayName
 import com.beauahill.hilltv.model.EPGStore
 import com.beauahill.hilltv.model.LivePreviewMode
 import com.beauahill.hilltv.model.LiveTVModel
@@ -93,6 +95,7 @@ private sealed interface ListFocus {
 @Composable
 fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
     val app = LocalApp.current
+    val menus = LocalHoldMenu.current
     val scope = rememberCoroutineScope()
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val inForeground = lifecycle.isAtLeast(Lifecycle.State.RESUMED)
@@ -108,6 +111,8 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
     var detailGameID by remember { mutableStateOf<String?>(null) }
     /** Set to ask which channel to watch a game on. */
     var picking by remember { mutableStateOf<GamePick?>(null) }
+    /** Set to move a channel within the list on screen. */
+    var moving by remember { mutableStateOf<ChannelMove?>(null) }
 
     val nowPlaying = app.nowPlaying
     val streams = if (model.showsFavorites) app.favorites.channels else model.streams
@@ -145,7 +150,7 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
     }
 
     /** The scores feed is only polled while games can be seen. */
-    val gamesActive = model.showsGames && nowPlaying == null && picking == null && inForeground
+    val gamesActive = model.showsGames && nowPlaying == null && picking == null && !app.multiview.isShowing && inForeground
 
     /** False while the sports channels are still loading or have not been matched to the games yet. */
     val channelsMatched = model.sportsChannels.isNotEmpty() && scores.hasMatched
@@ -154,10 +159,12 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
 
     /**
      * The preview holds a connection, so it only runs while it can be seen:
-     * not behind the player or another full-screen list, not in the background.
+     * not behind the player, the multiview, a menu or another full-screen
+     * list, not in the background. This page stays alive under all of those.
      */
     val previewAllowed = app.previewMode != LivePreviewMode.OFF && app.previewSupported &&
-        nowPlaying == null && !showingCategories && picking == null && inForeground
+        nowPlaying == null && !showingCategories && picking == null && moving == null &&
+        !menus.isShowing && !app.multiview.isShowing && inForeground
 
     val previewURL = previewStreamID
         ?.takeIf { previewAllowed && it == detailStream?.id }
@@ -167,7 +174,7 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
         val current = epg.schedule(stream.id)?.current(Instant.now())
         val item = PlayableItem(
             id = "live-${stream.id}",
-            title = stream.name,
+            title = stream.displayName.title,
             subtitle = current?.title,
             url = model.client.liveURL(stream.id, app.liveFormat),
             isLive = true,
@@ -196,10 +203,43 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
         }
     }
 
-    fun toggleFavorite(stream: LiveStream) {
-        val wasFavorite = app.favorites.contains(stream.id)
-        app.favorites.toggle(stream)
-        app.flash(if (wasFavorite) "Removed from Favorites" else "Added to Favorites")
+    /**
+     * Hold Select on a game: the same rule as opening it. One channel that
+     * names both teams goes straight into the multiview; anything less sure
+     * asks which channel first.
+     */
+    fun addToMultiview(game: SportsGame) {
+        val matches = scores.matches[game.id] ?: emptyList()
+        val sure = matches.filter { it.strength == com.beauahill.hilltv.core.GameChannelMatch.Strength.TEAMS }
+        if (sure.size == 1) {
+            app.multiview.addAndOpen(sure.first().stream, app.multiviewLimit)
+        } else if (matches.isNotEmpty()) {
+            picking = GamePick(game, matches.take(24), forMultiview = true)
+        }
+    }
+
+    /**
+     * Favorites and single categories can be put in the viewer's own order.
+     * "All" and Games are built from several categories and can't.
+     */
+    val canReorder = (model.showsFavorites || model.reorderCategoryID != null) && streams.size > 1
+
+    val listTitle = if (model.showsFavorites) {
+        "Favorites"
+    } else {
+        model.categories.firstOrNull { it.id == model.reorderCategoryID }?.displayName?.title ?: "Live TV"
+    }
+
+    fun openMenu(stream: LiveStream) {
+        menus.show(
+            stream.displayName.title,
+            buildList {
+                add(favoriteAction(app, stream))
+                add(multiviewAction(app, stream))
+                if (canReorder) add(MenuAction("Move") { moving = ChannelMove(listTitle, streams, stream) })
+                if (model.hasCustomOrder) add(MenuAction("Use the provider's order") { model.resetOrder() })
+            },
+        )
     }
 
     LaunchedEffect(model) { model.loadCategories(startWithFavorites) }
@@ -277,9 +317,13 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
         FullScreenCover(visible = true, onDismiss = { picking = null }) {
             GameChannelPicker(pick) { stream ->
                 picking = null
-                play(stream)
+                if (pick.forMultiview) app.multiview.addAndOpen(stream, app.multiviewLimit) else play(stream)
             }
         }
+    }
+
+    MoveChannelCover(moving, onClose = { moving = null }) { move, index ->
+        if (model.showsFavorites) app.favorites.move(move.stream.id, index) else model.move(move.stream.id, index)
     }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -305,6 +349,16 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
                             TVRow(
                                 onClick = { open(game) },
                                 minHeight = 64.dp,
+                                // Only once a channel has been found for the game.
+                                onLongClick = {
+                                    if (!scores.matches[game.id].isNullOrEmpty()) {
+                                        menus.show(
+                                            "${game.away.shortName} at ${game.home.shortName}",
+                                            listOf(MenuAction("Add to Multiview") { addToMultiview(game) }),
+                                            eyebrow = "Game",
+                                        )
+                                    }
+                                },
                                 onFocusChanged = { focused ->
                                     if (focused) listFocus = ListFocus.Game(game.id) else if (listFocus == ListFocus.Game(game.id)) listFocus = null
                                 },
@@ -332,7 +386,7 @@ fun LiveTVScreen(model: LiveTVModel, epg: EPGStore, scores: ScoreboardStore) {
                         TVRow(
                             onClick = { play(stream) },
                             minHeight = Theme.listRowHeight,
-                            onLongClick = { toggleFavorite(stream) },
+                            onLongClick = { openMenu(stream) },
                             onFocusChanged = { focused ->
                                 if (focused) listFocus = ListFocus.Stream(stream.id) else if (listFocus == ListFocus.Stream(stream.id)) listFocus = null
                             },
@@ -449,15 +503,18 @@ private fun CategoryBar(model: LiveTVModel, rowFocus: FocusRequester, openGrid: 
     }
 
     @Composable
-    fun chip(title: String, id: String) {
+    fun chip(id: String, label: @Composable () -> Unit) {
         TVChip(
             onClick = { onSelect(id) },
             modifier = if (selectedSub == id) Modifier.focusRequester(selected) else Modifier,
             isSelected = selectedSub == id,
         ) {
-            Txt(title, maxLines = 1)
+            label()
         }
     }
+
+    @Composable
+    fun chip(title: String, id: String) = chip(id) { Txt(title, maxLines = 1) }
 
     LazyRow(
         // Coming down from the pills lands on the selected chip.
@@ -473,7 +530,7 @@ private fun CategoryBar(model: LiveTVModel, rowFocus: FocusRequester, openGrid: 
         }
         if (model.offersGames) item(key = LiveTVModel.GAMES_ID) { chip("Games", LiveTVModel.GAMES_ID) }
         if (model.offersAll) item(key = LiveTVModel.ALL_ID) { chip("All", LiveTVModel.ALL_ID) }
-        items(subcategories, key = { it.id }) { category -> chip(category.name, category.id) }
+        items(subcategories, key = { it.id }) { category -> chip(category.id) { CategoryNameLabel(category.displayName) } }
     }
 }
 
@@ -493,7 +550,10 @@ private fun LiveChannelRow(stream: LiveStream, epg: EPGStore, isFavorite: Boolea
         ChannelLogo(stream.iconURL)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Txt(stream.name, Modifier.weight(1f, fill = false), Type.meta, maxLines = 1, weight = FontWeight.SemiBold)
+                ChannelNameLabel(
+                    stream.displayName, Modifier.weight(1f, fill = false),
+                    style = Type.meta, layout = NameLayout.INLINE, weight = FontWeight.SemiBold, inFocusRow = true,
+                )
                 if (isFavorite) FavoriteMark()
             }
             Txt(channelSubtitle(schedule, current, now), style = Type.small, color = secondaryColor(), maxLines = 1)
@@ -540,7 +600,10 @@ private fun ChannelDetailPane(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             stream.number?.let { Txt(it.toString(), style = Type.heading, color = Theme.muted, maxLines = 1, tabular = true) }
-            Txt(stream.name, Modifier.weight(1f, fill = false), Type.subtitle, Theme.text, maxLines = 1)
+            ChannelNameLabel(
+                stream.displayName, Modifier.weight(1f, fill = false),
+                style = Type.subtitle, detailStyle = Type.meta, layout = NameLayout.INLINE, color = Theme.text,
+            )
             if (stream.hasArchive) ArchiveMark(size = 13.dp)
         }
 
@@ -583,7 +646,7 @@ private fun ChannelStill(
         if (previewURL != null) {
             // One player per channel: a new URL tears the old one down.
             androidx.compose.runtime.key(previewURL) {
-                LivePreview(previewURL, previewMuted, Modifier.fillMaxSize(), onPreviewFailure)
+                LivePreview(previewURL, previewMuted, Modifier.fillMaxSize(), onFailure = onPreviewFailure)
             }
         }
         LiveBadge(Modifier.align(Alignment.TopStart).padding(10.dp))
@@ -635,7 +698,7 @@ private fun TimelineRow(entry: EPGEntry, now: Instant) {
 
 /** A full-screen page with an eyebrow and a title, for pickers. */
 @Composable
-internal fun CoverPage(eyebrow: String, title: String, content: @Composable () -> Unit) {
+internal fun CoverPage(eyebrow: String, title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -671,7 +734,7 @@ private fun CategoryPicker(title: String, categories: List<XtreamCategory>, sele
                     minHeight = 32.dp,
                     textStyle = Type.meta,
                 ) {
-                    Txt(category.name, maxLines = 1)
+                    CategoryNameLabel(category.displayName)
                 }
             }
         }

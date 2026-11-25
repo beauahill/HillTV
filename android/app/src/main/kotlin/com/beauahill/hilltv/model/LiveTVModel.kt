@@ -28,7 +28,11 @@ suspend fun <T> quietly(block: suspend () -> T): T? =
  * What Live TV is showing: a big pill (Favorites or a category group) and,
  * inside a group, either one provider category or all of them merged.
  */
-class LiveTVModel(val client: XtreamClient, private val visibility: CategoryVisibilityStore) {
+class LiveTVModel(
+    val client: XtreamClient,
+    private val visibility: CategoryVisibilityStore,
+    private val order: ChannelOrderStore,
+) {
     sealed interface Pill {
         data object Favorites : Pill
         data class Group(val group: CategoryGroup) : Pill
@@ -96,6 +100,45 @@ class LiveTVModel(val client: XtreamClient, private val visibility: CategoryVisi
 
     /** Whether the selected group offers the merged "All" list. Sports doesn't: its Games list already ends with every sports channel. */
     val offersAll: Boolean get() = !offersGames && offersAll(subcategories)
+
+    // MARK: The viewer's order
+
+    /**
+     * The provider category on screen, when the list is one category.
+     * Only those can be put in the viewer's own order: "All" and Games are
+     * built from several categories, and Favorites keeps its own order.
+     */
+    val reorderCategoryID: String?
+        get() {
+            val current = selection ?: return null
+            if (current.pill !is Pill.Group) return null
+            return current.sub?.takeIf { it != ALL_ID && it != GAMES_ID }
+        }
+
+    val hasCustomOrder: Boolean get() = reorderCategoryID?.let(order::hasOrder) ?: false
+
+    fun move(streamID: Int, index: Int) {
+        val categoryID = reorderCategoryID ?: return
+        order.move(streamID, index, streams, categoryID)
+        applyOrder()
+    }
+
+    fun resetOrder() {
+        val categoryID = reorderCategoryID ?: return
+        order.reset(categoryID)
+        applyOrder()
+    }
+
+    /**
+     * `streams` is stored, not sorted per render. This runs after a move
+     * and when Live TV appears, since the Guide can reorder the same
+     * category.
+     */
+    private fun applyOrder() {
+        val categoryID = reorderCategoryID ?: return
+        val cached = streamCache[categoryID] ?: return
+        streams = order.apply(cached, categoryID)
+    }
 
     // MARK: Loading
 
@@ -201,7 +244,7 @@ class LiveTVModel(val client: XtreamClient, private val visibility: CategoryVisi
         val sub = selection.sub
         if (sub != null && sub in validSubs(group, grouped.categories)) {
             // "All" and "Games" depend on which categories are visible, so rebuild them.
-            if (streamState == LoadState.Idle || sub == ALL_ID || sub == GAMES_ID) load()
+            if (streamState == LoadState.Idle || sub == ALL_ID || sub == GAMES_ID) load() else applyOrder()
         } else {
             lastSub.remove(group)
             this.selection = Selection(selection.pill, defaultSub(group, grouped.categories))
@@ -267,7 +310,7 @@ class LiveTVModel(val client: XtreamClient, private val visibility: CategoryVisi
 
             val cached = streamCache[sub]
             if (cached != null) {
-                streams = cached
+                streams = order.apply(cached, sub)
                 streamState = if (cached.isEmpty()) LoadState.Empty else LoadState.Loaded
                 return
             }
@@ -277,7 +320,7 @@ class LiveTVModel(val client: XtreamClient, private val visibility: CategoryVisi
             streamCache[sub] = result
             // Ignore late results if the user already moved on.
             if (selection != token) return
-            streams = result
+            streams = order.apply(result, sub)
             streamState = if (result.isEmpty()) LoadState.Empty else LoadState.Loaded
         } catch (error: CancellationException) {
             if (selection == token) streamState = LoadState.Idle

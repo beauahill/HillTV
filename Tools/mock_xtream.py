@@ -66,20 +66,22 @@ try:
 except ImportError:  # artwork is optional
     Image = None
 
+# Some names are in the forms a real provider uses: a marker between bars,
+# a kind word and a dash, a tag in brackets (one with a mistyped bracket).
 LIVE_CATEGORIES = [
-    ("1", "US | SPORTS"), ("2", "NFL"), ("3", "NBA LEAGUE PASS"), ("4", "NHL"), ("5", "MLB"),
+    ("1", "|NA| USA Sports"), ("2", "NFL"), ("3", "NBA LEAGUE PASS"), ("4", "NHL"), ("5", "MLB"),
     ("6", "PPV EVENTS"), ("7", "UK | SPORTS"), ("8", "SOCCER"), ("9", "GOLF & TENNIS"),
-    ("10", "US | NEWS"), ("11", "UK | NEWS"), ("12", "US | ENTERTAINMENT"), ("13", "CA | LOCALS"),
-    ("14", "24/7 SHOWS"), ("15", "US | MOVIES"), ("16", "KIDS"), ("17", "MUSIC"),
+    ("10", "|NA| USA News"), ("11", "UK | NEWS"), ("12", "US | ENTERTAINMENT"), ("13", "CA | LOCALS"),
+    ("14", "24/7 SHOWS"), ("15", "US | MOVIES"), ("16", "|NA| USA Kids"), ("17", "MUSIC"),
     ("18", "FR | CINEMA"), ("19", "LATINO"), ("20", "Mystery Box"),
 ]
 CHANNEL_WORDS = ["Summit", "Ridgeline", "Prairie", "Harbor", "Granite", "Copper", "Tetons", "Basin", "Cedar", "Juniper"]
 SHOWS = ["Evening News", "Morning Roundup", "Trail Report", "Cooking With Fire", "Small Town Stories", "The Late Game",
          "Weather Now", "Antiques Hour", "High Country", "Quiz Night", "Amélie's Kitchen", "Night Shift"]
-VOD_CATEGORIES = [("101", "Action"), ("102", "Comedy"), ("103", "Drama"), ("104", "Family")]
+VOD_CATEGORIES = [("101", "VOD - NEW ADDED [EN]"), ("102", "VOD - NETFLIX [EN]"), ("103", "VOD - NETFLIX [MULTISUB]"), ("104", "Family")]
 MOVIE_WORDS = ["Last", "Silver", "Midnight", "Broken", "Golden", "Quiet", "Wild", "Distant", "Paper", "Iron"]
 MOVIE_NOUNS = ["Canyon", "Harvest", "Signal", "Orchard", "Station", "Lantern", "River", "Summit", "Compass", "Garden"]
-SERIES_CATEGORIES = [("201", "Drama Series"), ("202", "Comedy Series"), ("203", "Documentaries")]
+SERIES_CATEGORIES = [("201", "SRS - HULU [EN}"), ("202", "Comedy Series"), ("203", "Documentaries")]
 
 
 def channels_in(category_id):
@@ -91,10 +93,13 @@ def channels_in(category_id):
         stream_id = cid * 1000 + index
         word = CHANNEL_WORDS[(cid + index) % len(CHANNEL_WORDS)]
         suffix = ["HD", "FHD", "East", "West", "2", "Plus"][index % 6]
+        topic = name.split("|")[-1].split()[-1].title()
+        # Every other channel carries a country prefix, as providers' lists do.
+        region = ["US | ", "", "UK: ", ""][index % 4]
         row = {
             # Numbers arrive as numbers or strings depending on the row.
             "num": index + 1 if index % 2 else str(index + 1),
-            "name": f"{name.split('|')[-1].strip().title()}: {word} {suffix}",
+            "name": f"{region}{word} {topic} {suffix}",
             "stream_type": "live",
             "stream_id": stream_id if index % 3 else str(stream_id),
             "stream_icon": f"/img/logo/{stream_id}.png" if index % 5 else "",

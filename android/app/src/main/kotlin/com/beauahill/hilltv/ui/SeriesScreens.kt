@@ -155,9 +155,13 @@ fun SeriesScreen(model: SeriesModel) {
                 )
             }
             Box(Modifier.weight(1f).fillMaxHeight()) {
-                PosterGrid(model.items, key = { it.id }, Modifier.fillMaxSize()) { item ->
-                    TVCard(onClick = { model.path.add(Route.Series(item)) }) { focused ->
-                        PosterCard(item.name, item.coverURL, focused, subtitle = item.seriesYear)
+                // A new grid per category, so each one opens at its top instead of
+                // where the last one was scrolled to.
+                key(model.selectedCategoryID) {
+                    PosterGrid(model.items, key = { it.id }, Modifier.fillMaxSize()) { item ->
+                        TVCard(onClick = { model.path.add(Route.Series(item)) }) { focused ->
+                            PosterCard(item.name, item.coverURL, focused, subtitle = item.seriesYear)
+                        }
                     }
                 }
                 LoadStateView(model.itemState, emptyText = "No series in this category") { scope.launch { model.retry() } }

@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beauahill.hilltv.BuildConfig
 import com.beauahill.hilltv.core.LiveFormat
+import com.beauahill.hilltv.core.Multiview
 import com.beauahill.hilltv.core.PlaybackSettings
 import com.beauahill.hilltv.core.XtreamAccount
 import com.beauahill.hilltv.core.XtreamAuthInfo
@@ -86,9 +87,37 @@ class AppModel(context: Context) {
             prefs.edit().putString(PREVIEW_KEY, value?.id).apply()
         }
 
+    private val multiviewLimitState = mutableStateOf(prefs.getBoolean(MULTIVIEW_LIMIT_KEY, false))
+
+    /**
+     * The viewer chose to let the multiview try more channels than the
+     * account reports connections for. Off unless they turn it on.
+     */
+    var multiviewIgnoresLimit: Boolean
+        get() = multiviewLimitState.value
+        set(value) {
+            multiviewLimitState.value = value
+            prefs.edit().putBoolean(MULTIVIEW_LIMIT_KEY, value).apply()
+        }
+
+    private val multiviewTSState = mutableStateOf(prefs.getBoolean(MULTIVIEW_TS_KEY, false))
+
+    /**
+     * A trial: multiview tiles ask for raw MPEG-TS instead of HLS. Off
+     * unless the viewer turns it on.
+     */
+    var multiviewUsesTS: Boolean
+        get() = multiviewTSState.value
+        set(value) {
+            multiviewTSState.value = value
+            prefs.edit().putBoolean(MULTIVIEW_TS_KEY, value).apply()
+        }
+
     val favorites = FavoritesStore(prefs)
     val watchHistory = WatchHistoryStore(prefs)
     val categoryVisibility = CategoryVisibilityStore(prefs)
+    val channelOrder = ChannelOrderStore(prefs)
+    val multiview = MultiviewStore()
 
     /**
      * Whether Live TV plays the focused channel in its detail pane.
@@ -102,6 +131,27 @@ class AppModel(context: Context) {
 
     /** False when the panel allows one connection or doesn't say. */
     val hasSpareConnection: Boolean get() = (authInfo?.user?.maxConnections ?: 1) >= 2
+
+    /**
+     * How many channels the multiview may play together: the account's
+     * connection count, four at most, unless the viewer chose to try more.
+     * A panel that doesn't say gets four, unlike [hasSpareConnection].
+     */
+    val multiviewLimit: Int
+        get() = Multiview.tileLimit(authInfo?.user?.maxConnections, multiviewIgnoresLimit)
+
+    /** Whether the MPEG-TS trial can be offered: the panel offers TS, or doesn't say what it offers. */
+    val multiviewTSAvailable: Boolean
+        get() {
+            val formats = authInfo?.user?.allowedOutputFormats ?: emptyList()
+            return formats.isEmpty() || "ts" in formats
+        }
+
+    /** True when the multiview's tiles ask for MPEG-TS. */
+    val multiviewPlaysTS: Boolean get() = multiviewUsesTS && multiviewTSAvailable
+
+    /** The connection count the panel reports, when it reports one. */
+    val reportedConnections: Int? get() = authInfo?.user?.maxConnections
 
     /** The preview always plays HLS. */
     val previewSupported: Boolean
@@ -132,6 +182,7 @@ class AppModel(context: Context) {
         this.client = client
         watchHistory.activate(account)
         categoryVisibility.activate(account)
+        channelOrder.activate(account)
         phase = Phase.SIGNED_IN
 
         // Refresh account details without holding up the UI.
@@ -154,6 +205,7 @@ class AppModel(context: Context) {
         withContext(Dispatchers.IO) { AccountStore.save(prefs, account) }
         watchHistory.activate(account)
         categoryVisibility.activate(account)
+        channelOrder.activate(account)
         this.client = client
         authInfo = info
         accountWarning = null
@@ -165,6 +217,9 @@ class AppModel(context: Context) {
         watchHistory.clear()
         // Hidden categories are kept for the next sign in; see CategoryVisibilityStore.
         categoryVisibility.deactivate()
+        // The same goes for the order given to channel lists.
+        channelOrder.deactivate()
+        multiview.clear()
         nowPlaying = null
         client = null
         authInfo = null
@@ -207,5 +262,7 @@ class AppModel(context: Context) {
         private const val FORMAT_KEY = "liveFormat"
         private const val PREVIEW_KEY = "livePreview"
         private const val PLAYBACK_KEY = "playbackSettings.v1"
+        private const val MULTIVIEW_LIMIT_KEY = "multiviewIgnoresLimit"
+        private const val MULTIVIEW_TS_KEY = "multiviewUsesTS"
     }
 }

@@ -31,6 +31,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 
 /** Lets one field hand typing on to the next, and lets a screen put focus on a field. */
 class TVTextFieldState {
@@ -76,6 +83,7 @@ fun TVTextField(
 ) {
     val inner = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(state.editing) {
         if (state.editing) {
@@ -117,7 +125,25 @@ fun TVTextField(
                     .focusRequester(inner)
                     // Only reachable through Select on the box around it.
                     .focusProperties { canFocus = state.editing }
-                    .onFocusChanged { if (!it.isFocused && state.editing) state.editing = false },
+                    .onFocusChanged { if (!it.isFocused && state.editing) state.editing = false }
+                    // Back with the keyboard up hides the keyboard and nothing
+                    // else, which left the field typing and holding focus, so
+                    // Down went nowhere. While the TV's keyboard shows it takes
+                    // the arrows itself, so an arrow reaching the field means the
+                    // keyboard is gone: stop typing and move on.
+                    .onPreviewKeyEvent { event ->
+                        val direction = when (event.key) {
+                            Key.DirectionDown -> FocusDirection.Down
+                            Key.DirectionUp -> FocusDirection.Up
+                            else -> null
+                        }
+                        if (direction == null || !state.editing) return@onPreviewKeyEvent false
+                        if (event.type == KeyEventType.KeyDown) {
+                            finish()
+                            focusManager.moveFocus(direction)
+                        }
+                        true
+                    },
                 textStyle = Type.body.copy(color = Theme.text),
                 singleLine = true,
                 cursorBrush = SolidColor(Theme.accent),

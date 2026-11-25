@@ -22,7 +22,9 @@ import com.beauahill.hilltv.core.GuideWindow
 import com.beauahill.hilltv.core.LiveStream
 import com.beauahill.hilltv.core.XtreamCategory
 import com.beauahill.hilltv.core.XtreamClient
+import com.beauahill.hilltv.core.displayName
 import com.beauahill.hilltv.model.CategoryVisibilityStore
+import com.beauahill.hilltv.model.ChannelOrderStore
 import com.beauahill.hilltv.model.LoadState
 import com.beauahill.hilltv.model.quietly
 import com.beauahill.hilltv.model.readable
@@ -44,6 +46,7 @@ import java.time.Instant
 class GuideModel(
     val client: XtreamClient,
     private val visibility: CategoryVisibilityStore,
+    private val order: ChannelOrderStore,
     private val scope: CoroutineScope,
 ) {
     var categories: List<XtreamCategory> by mutableStateOf(emptyList())
@@ -77,10 +80,46 @@ class GuideModel(
 
     val allHidden: Boolean get() = categories.isNotEmpty() && visibleCategories.isEmpty()
 
+    /**
+     * True when the Guide lists favorites. The screen reads those channels
+     * from `FavoritesStore`, so adding or removing one shows at once.
+     */
+    val showsFavorites: Boolean get() = selectedCategoryID == FAVORITES_ID
+
+    // MARK: The viewer's order
+
+    /** The provider category on screen. Null for Favorites, which keeps its own order in `FavoritesStore`. */
+    val reorderCategoryID: String? get() = selectedCategoryID?.takeIf { it != FAVORITES_ID }
+
+    val hasCustomOrder: Boolean get() = reorderCategoryID?.let(order::hasOrder) ?: false
+
+    fun move(streamID: Int, index: Int) {
+        val categoryID = reorderCategoryID ?: return
+        order.move(streamID, index, channels, categoryID)
+        applyOrder()
+    }
+
+    fun resetOrder() {
+        val categoryID = reorderCategoryID ?: return
+        order.reset(categoryID)
+        applyOrder()
+    }
+
+    /**
+     * `channels` is stored, not sorted per render. This runs after a move
+     * and when the Guide appears, since Live TV can reorder the same category.
+     */
+    private fun applyOrder() {
+        val categoryID = reorderCategoryID ?: return
+        val cached = channelCache[categoryID] ?: return
+        channels = order.apply(cached, categoryID)
+    }
+
     // MARK: Categories and channels (same pattern as Movies)
 
-    suspend fun loadCategories() {
+    suspend fun loadCategories(startWithFavorites: Boolean) {
         refreshWindowIfNeeded()
+        if (selectedCategoryID == null && startWithFavorites) select(FAVORITES_ID)
         if (categories.isNotEmpty()) {
             reconcileSelection()
             return
@@ -103,27 +142,33 @@ class GuideModel(
     /**
      * Keeps the selection on a category that is still shown, since categories
      * can be hidden in Settings between visits. Also refetches after a
-     * cancelled first load.
+     * cancelled first load. Favorites is never hidden, and it is where the
+     * Guide goes when every category is.
      */
     private suspend fun reconcileSelection() {
+        if (showsFavorites) return
         val shown = visibleCategories
         val id = selectedCategoryID
         if (id != null && shown.any { it.id == id }) {
-            if (channelState == LoadState.Idle) select(id)
+            if (channelState == LoadState.Idle) select(id) else applyOrder()
         } else if (shown.isNotEmpty()) {
             select(shown.first().id)
         } else {
-            selectedCategoryID = null
-            channels = emptyList()
-            channelState = LoadState.Idle
+            select(FAVORITES_ID)
         }
     }
 
     suspend fun select(categoryID: String) {
         if (categoryID == selectedCategoryID && (channelState == LoadState.Loaded || channelState == LoadState.Loading)) return
         selectedCategoryID = categoryID
+        if (categoryID == FAVORITES_ID) {
+            // Nothing to fetch: the screen lists the channels from FavoritesStore.
+            channels = emptyList()
+            channelState = LoadState.Loaded
+            return
+        }
         channelCache[categoryID]?.let { cached ->
-            channels = cached
+            channels = order.apply(cached, categoryID)
             channelState = if (cached.isEmpty()) LoadState.Empty else LoadState.Loaded
             return
         }
@@ -133,7 +178,7 @@ class GuideModel(
             val result = client.liveStreams(categoryID)
             channelCache[categoryID] = result
             if (selectedCategoryID != categoryID) return
-            channels = result
+            channels = order.apply(result, categoryID)
             channelState = if (result.isEmpty()) LoadState.Empty else LoadState.Loaded
         } catch (error: CancellationException) {
             if (selectedCategoryID == categoryID) channelState = LoadState.Idle
@@ -213,9 +258,12 @@ class GuideModel(
         }
     }
 
-    private companion object {
-        const val MAX_CONCURRENT = 4
-        const val ENTRIES_PER_CHANNEL = 12
+    companion object {
+        /** Stands in for a category ID when the Guide shows favorite channels. */
+        const val FAVORITES_ID = "hilltv.favorites"
+
+        private const val MAX_CONCURRENT = 4
+        private const val ENTRIES_PER_CHANNEL = 12
     }
 }
 
@@ -225,8 +273,11 @@ private val guideRowHeight = 44.dp
 @Composable
 fun GuideScreen(model: GuideModel) {
     val app = LocalApp.current
+    val menus = LocalHoldMenu.current
     val scope = rememberCoroutineScope()
     val focusSelect = rememberFocusSelect { model.select(it) }
+    /** Set to move a channel within the list on screen. */
+    var moving by remember { mutableStateOf<ChannelMove?>(null) }
     // Moves the "now" line and the on-air shading along.
     val now by produceState(Instant.now()) {
         while (true) {
@@ -235,7 +286,7 @@ fun GuideScreen(model: GuideModel) {
         }
     }
 
-    LaunchedEffect(model) { model.loadCategories() }
+    LaunchedEffect(model) { model.loadCategories(startWithFavorites = app.favorites.channels.isNotEmpty()) }
     LaunchedEffect(model) {
         while (true) {
             delay(60_000)
@@ -248,23 +299,49 @@ fun GuideScreen(model: GuideModel) {
         app.play(liveItem(stream, model.client, app, subtitle = onAir?.title ?: entry?.title))
     }
 
-    fun toggleFavorite(stream: LiveStream) {
-        val wasFavorite = app.favorites.contains(stream.id)
-        app.favorites.toggle(stream)
-        app.flash(if (wasFavorite) "Removed from Favorites" else "Added to Favorites")
+    /** "Favorites" sits above the provider's categories and is never hidden. */
+    val favoritesEntry = remember { XtreamCategory(GuideModel.FAVORITES_ID, "Favorites") }
+    val rows = if (model.showsFavorites) app.favorites.channels else model.channels
+    val channelState = when {
+        !model.showsFavorites -> model.channelState
+        app.favorites.channels.isEmpty() -> LoadState.Empty
+        else -> LoadState.Loaded
+    }
+    val emptyText = when {
+        !model.showsFavorites -> "No channels in this category"
+        model.allHidden -> ALL_CATEGORIES_HIDDEN_TEXT
+        else -> "No favorites yet. Hold Select on a channel to add it."
+    }
+    val listTitle = if (model.showsFavorites) {
+        "Favorites"
+    } else {
+        model.categories.firstOrNull { it.id == model.selectedCategoryID }?.displayName?.title ?: "Guide"
+    }
+
+    fun openMenu(stream: LiveStream) {
+        menus.show(
+            stream.displayName.title,
+            buildList {
+                add(favoriteAction(app, stream))
+                add(multiviewAction(app, stream))
+                if (rows.size > 1) add(MenuAction("Move") { moving = ChannelMove(listTitle, rows, stream) })
+                if (model.hasCustomOrder) add(MenuAction("Use the provider's order") { model.resetOrder() })
+            },
+        )
+    }
+
+    MoveChannelCover(moving, onClose = { moving = null }) { move, index ->
+        if (model.showsFavorites) app.favorites.move(move.stream.id, index) else model.move(move.stream.id, index)
     }
 
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.width(160.dp).fillMaxHeight()) {
             CategoryColumn(
-                "Guide", model.visibleCategories, model.selectedCategoryID,
+                "Guide", listOf(favoritesEntry) + model.visibleCategories, model.selectedCategoryID,
                 onFocus = { focusSelect(it.id) },
                 onSelect = { scope.launch { model.select(it.id) } },
             )
-            LoadStateView(
-                if (model.allHidden) LoadState.Empty else model.categoryState,
-                emptyText = if (model.allHidden) ALL_CATEGORIES_HIDDEN_TEXT else "No live categories",
-            )
+            LoadStateView(model.categoryState, emptyText = "No live categories")
         }
 
         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
@@ -287,7 +364,7 @@ fun GuideScreen(model: GuideModel) {
                         contentPadding = PaddingValues(vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
-                        items(model.channels, key = { it.id }) { stream ->
+                        items(rows, key = { it.id }) { stream ->
                             DisposableEffect(stream.id) {
                                 model.rowAppeared(stream.id)
                                 onDispose { model.rowDisappeared(stream.id) }
@@ -295,7 +372,7 @@ fun GuideScreen(model: GuideModel) {
                             GuideRow(
                                 stream, window, model.listings[stream.id], timeline, now,
                                 onPlay = { play(stream, it) },
-                                onLongClick = { toggleFavorite(stream) },
+                                onLongClick = { openMenu(stream) },
                             )
                         }
                     }
@@ -309,7 +386,7 @@ fun GuideScreen(model: GuideModel) {
                     )
                 }
             }
-            LoadStateView(model.channelState, emptyText = "No channels in this category") {
+            LoadStateView(channelState, emptyText = emptyText) {
                 scope.launch { model.retryChannels() }
             }
         }
@@ -333,7 +410,11 @@ private fun GuideRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ChannelLogo(stream.iconURL, width = 40.dp, height = 26.dp)
-            Txt(stream.name, style = Type.small, color = Theme.text, maxLines = 2, weight = FontWeight.SemiBold)
+            ChannelNameLabel(
+                stream.displayName,
+                style = Type.small, detailStyle = TextStyle(fontSize = 9.sp), titleLines = 2,
+                weight = FontWeight.SemiBold, color = Theme.text,
+            )
         }
         Row(Modifier.width(timeline)) {
             // Positional keys: when listings arrive, the focused first cell stays the same cell.

@@ -6,12 +6,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.beauahill.hilltv.core.LiveStream
 import com.beauahill.hilltv.core.XtreamClient
+import com.beauahill.hilltv.core.displayName
 
 /** A plain channel row: number, logo, name. */
 @Composable
@@ -21,7 +26,7 @@ internal fun RowScope.ChannelRow(stream: LiveStream, isFavorite: Boolean) {
         Gap(width = 10.dp)
     }
     ChannelLogo(stream.iconURL)
-    Txt(stream.name, Modifier.padding(start = 10.dp).weight(1f), maxLines = 1)
+    ChannelNameLabel(stream.displayName, Modifier.padding(start = 10.dp).weight(1f), inFocusRow = true)
     if (stream.hasArchive) ArchiveMark(Modifier.padding(start = 6.dp))
     if (isFavorite) FavoriteMark(Modifier.padding(start = 6.dp), size = 12.dp)
 }
@@ -29,7 +34,13 @@ internal fun RowScope.ChannelRow(stream: LiveStream, isFavorite: Boolean) {
 @Composable
 fun FavoritesScreen(client: XtreamClient) {
     val app = LocalApp.current
+    val menus = LocalHoldMenu.current
     val channels = app.favorites.channels
+    var moving by remember { mutableStateOf<ChannelMove?>(null) }
+
+    MoveChannelCover(moving, onClose = { moving = null }) { move, index ->
+        app.favorites.move(move.stream.id, index)
+    }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.padding(start = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -54,8 +65,14 @@ fun FavoritesScreen(client: XtreamClient) {
                         onClick = { app.play(liveItem(stream, client, app)) },
                         minHeight = Theme.listRowHeight,
                         onLongClick = {
-                            app.favorites.toggle(stream)
-                            app.flash("Removed from Favorites")
+                            menus.show(
+                                stream.displayName.title,
+                                buildList {
+                                    add(multiviewAction(app, stream))
+                                    if (channels.size > 1) add(MenuAction("Move") { moving = ChannelMove("Favorites", channels, stream) })
+                                    add(favoriteAction(app, stream))
+                                },
+                            )
                         },
                     ) {
                         ChannelRow(stream, isFavorite = false)

@@ -70,6 +70,38 @@ internal fun mediaSourceFactory(context: Context, userAgent: String): DefaultMed
     return DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http))
 }
 
+/** What a playback failure should say on screen. */
+internal fun describePlaybackError(error: PlaybackException): String {
+    val cause = error.cause
+    if (cause is HttpDataSource.InvalidResponseCodeException) {
+        return "The server refused the stream (HTTP ${cause.responseCode})."
+    }
+    return when (error.errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Couldn't reach the server."
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "The server doesn't have this stream."
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> "The stream isn't in a format the player understands."
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> "This device can't decode this video or audio format."
+        else -> error.message ?: error.errorCodeName
+    }
+}
+
+/**
+ * True when the device ran out of decoders: one couldn't be started, or one
+ * was taken back for something else (Media3's own descriptions). Many TV
+ * boxes run only one or two video decoders at a time. Bad samples and a
+ * picture too big for the device are left out on purpose: those are about
+ * the stream, not how many channels are open.
+ */
+internal fun isDecoderError(error: PlaybackException): Boolean = when (error.errorCode) {
+    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+    PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED -> true
+    else -> false
+}
+
 /**
  * One ExoPlayer for one item. ExoPlayer plays HLS, raw MPEG-TS, mkv and mp4
  * itself, so unlike the Apple TV app there is a single engine.
@@ -176,13 +208,13 @@ internal class PlayerSession(
 
     override fun onPlayerError(error: PlaybackException) {
         if (!item.isLive) {
-            onError(describe(error))
+            onError(describePlaybackError(error))
             return
         }
         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
             player.seekToDefaultPosition()
         }
-        retryOrFail(describe(error))
+        retryOrFail(describePlaybackError(error))
     }
 
     private fun retryOrFail(message: String) {
@@ -238,24 +270,6 @@ internal class PlayerSession(
         if (offset == C.TIME_UNSET || offset < liveTargetMs + 3_000 || now - lastCatchUp < 10_000) return
         lastCatchUp = now
         player.seekToDefaultPosition()
-    }
-
-    private fun describe(error: PlaybackException): String {
-        val cause = error.cause
-        if (cause is HttpDataSource.InvalidResponseCodeException) {
-            return "The server refused the stream (HTTP ${cause.responseCode})."
-        }
-        return when (error.errorCode) {
-            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Couldn't reach the server."
-            PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "The server doesn't have this stream."
-            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
-            PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-            PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> "The stream isn't in a format the player understands."
-            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> "This device can't decode this video or audio format."
-            else -> error.message ?: error.errorCodeName
-        }
     }
 
     private companion object {

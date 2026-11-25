@@ -87,7 +87,13 @@ val LocalApp = staticCompositionLocalOf<AppModel> { error("AppModel is not provi
 fun HillTVRoot(app: AppModel) {
     LaunchedEffect(app) { app.restore() }
     val covers = remember { CoverHost() }
-    CompositionLocalProvider(LocalApp provides app, LocalCoverHost provides covers, LocalContentColor provides Theme.text) {
+    val menus = remember { HoldMenuHost() }
+    CompositionLocalProvider(
+        LocalApp provides app,
+        LocalCoverHost provides covers,
+        LocalHoldMenu provides menus,
+        LocalContentColor provides Theme.text,
+    ) {
         Box(Modifier.fillMaxSize().background(Theme.background)) {
             val client = app.client
             when {
@@ -101,21 +107,10 @@ fun HillTVRoot(app: AppModel) {
                             cover = { if (item != null) key(item.id) { PlayerScreen(item, onClose = app::closePlayer) } },
                             coverColor = Color.Black,
                         ) {
-                            val top = covers.entries.lastOrNull()
-                            Covered(
-                                covered = top != null,
-                                cover = {
-                                    if (top != null) {
-                                        key(top) {
-                                            BackHandler { top.onDismiss() }
-                                            top.content()
-                                        }
-                                    }
-                                },
-                            ) {
-                                MainShell(client)
-                            }
+                            CoverLayer(covers.entries, 0) { MainShell(client) }
                         }
+                        // Declared after the shell, so the menu is the newest cover and sits on top.
+                        HoldMenuCover(menus)
                     }
                 }
                 else -> LoginScreen()
@@ -125,7 +120,32 @@ fun HillTVRoot(app: AppModel) {
     }
 }
 
-/** Full-screen pages opened from inside a section: Search, pickers. The newest one shows. */
+/**
+ * The covers as a stack: each one sits over the one before, and every page
+ * underneath stays composed. That matters for the multiview, whose list of
+ * channels to add opens over it while its channels keep playing.
+ */
+@Composable
+private fun CoverLayer(entries: List<CoverHost.Entry>, index: Int, base: @Composable () -> Unit) {
+    val next = entries.getOrNull(index)
+    Covered(
+        covered = next != null,
+        coverKey = next,
+        cover = {
+            if (next != null) {
+                key(next) {
+                    CoverLayer(entries, index + 1) {
+                        BackHandler { next.onDismiss() }
+                        next.content()
+                    }
+                }
+            }
+        },
+        base = base,
+    )
+}
+
+/** Full-screen pages opened from inside a section: Search, pickers, menus. They stack, newest on top. */
 class CoverHost {
     class Entry(val content: @Composable () -> Unit, val onDismiss: () -> Unit)
 
@@ -178,6 +198,9 @@ private fun Notice(app: AppModel) {
  * The page underneath stays alive, so it keeps its scroll position and comes
  * back as it was, but while it is covered focus can't get into it. When the
  * cover closes, focus goes back to whatever had it before.
+ *
+ * Staying alive also means it keeps running. Anything underneath that holds
+ * a connection or polls has to stop itself while it is covered.
  */
 @Composable
 fun Covered(
@@ -185,6 +208,8 @@ fun Covered(
     cover: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     coverColor: Color = Theme.background,
+    /** Changes when one cover is swapped for another without the page underneath showing in between. */
+    coverKey: Any? = null,
     base: @Composable () -> Unit,
 ) {
     val baseFocus = remember { FocusRequester() }
@@ -197,9 +222,11 @@ fun Covered(
     val returnTo = remember { arrayOfNulls<FocusRequester>(1) }
     val baseHasFocus = remember { booleanArrayOf(false) }
 
-    LaunchedEffect(covered) {
+    LaunchedEffect(covered, coverKey) {
         if (covered) {
-            returnTo[0] = FocusMemory.last
+            // A menu that opens another page swaps one cover for the next. The
+            // control to go back to is still the one from before the first.
+            if (!wasCovered[0]) returnTo[0] = FocusMemory.last
             try {
                 // Take focus off the page underneath even before the cover has anything to focus.
                 coverFocus.requestFocus()
@@ -275,10 +302,10 @@ class ShellState(val client: XtreamClient, app: AppModel) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val epg = EPGStore(client, scope)
     val scores = ScoreboardStore(AppModel.USER_AGENT)
-    val live = LiveTVModel(client, app.categoryVisibility)
+    val live = LiveTVModel(client, app.categoryVisibility, app.channelOrder)
     val home = HomeModel(client, app.categoryVisibility)
     val search = SearchModel(client, app.categoryVisibility)
-    val guide = GuideModel(client, app.categoryVisibility, scope)
+    val guide = GuideModel(client, app.categoryVisibility, app.channelOrder, scope)
     val movies = MoviesModel(client, app.categoryVisibility)
     val series = SeriesModel(client, app.categoryVisibility)
 
@@ -337,6 +364,22 @@ fun MainShell(client: XtreamClient) {
         }
     }
 
+    // When a cover closes, focus goes back to the control that had it. If
+    // that control is gone (a favorite just removed from its own menu, say),
+    // focus falls to the rail. Put it back in the content instead, when the
+    // content has something to take it.
+    val covered = covers.entries.isNotEmpty() || app.nowPlaying != null
+    LaunchedEffect(covered) {
+        if (covered || showingSearch) return@LaunchedEffect
+        repeat(3) { withFrameNanos { } }
+        if (railFocused) {
+            try {
+                contentFocus.requestFocus(FocusDirection.Enter)
+            } catch (_: IllegalStateException) {
+            }
+        }
+    }
+
     // At a section's root, Back goes to the rail. Anything opened inside a
     // section is declared later, so its own handler runs first and closes it.
     BackHandler(enabled = !railFocused) {
@@ -348,6 +391,14 @@ fun MainShell(client: XtreamClient) {
 
     FullScreenCover(visible = showingSearch, onDismiss = { showingSearch = false }) {
         SearchScreen(state.search)
+    }
+
+    // The multiview is opened from hold-Select menus all over the app, so its
+    // switch lives on `AppModel` and the cover lives here. The section behind
+    // stays up, keeping its place for adding another channel; Live TV stops
+    // its preview and scores while the multiview shows.
+    FullScreenCover(visible = app.multiview.isShowing, onDismiss = { app.multiview.isShowing = false }) {
+        MultiviewScreen(client, state.epg)
     }
 
     run {
@@ -370,7 +421,7 @@ fun MainShell(client: XtreamClient) {
                 // scores polling. Its model keeps the state for when it comes back.
                 if (!showingSearch) {
                     when (section) {
-                        AppSection.HOME -> HomeScreen(state.home, state.epg, openSearch = { showingSearch = true })
+                        AppSection.HOME -> HomeScreen(state.home, state.epg)
                         AppSection.SEARCH -> Unit
                         AppSection.LIVE -> LiveTVScreen(state.live, state.epg, state.scores)
                         AppSection.GUIDE -> GuideScreen(state.guide)

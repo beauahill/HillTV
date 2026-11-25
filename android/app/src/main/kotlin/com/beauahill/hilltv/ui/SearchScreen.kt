@@ -15,6 +15,7 @@ import com.beauahill.hilltv.core.SearchIndex
 import com.beauahill.hilltv.core.SeriesItem
 import com.beauahill.hilltv.core.VODStream
 import com.beauahill.hilltv.core.XtreamClient
+import com.beauahill.hilltv.core.displayName
 import com.beauahill.hilltv.model.CategoryVisibilityStore
 import com.beauahill.hilltv.model.LoadState
 import com.beauahill.hilltv.model.readable
@@ -145,6 +146,7 @@ class SearchModel(val client: XtreamClient, private val visibility: CategoryVisi
 @Composable
 fun SearchScreen(model: SearchModel) {
     val app = LocalApp.current
+    val menus = LocalHoldMenu.current
     val scope = rememberCoroutineScope()
     val field = remember { TVTextFieldState() }
     LaunchedEffect(Unit) { field.focus() }
@@ -192,11 +194,8 @@ fun SearchScreen(model: SearchModel) {
                     items(model.channels, key = { it.id }) { stream ->
                         TVCard(
                             onClick = { app.play(liveItem(stream, model.client, app)) },
-                            onLongClick = {
-                                val wasFavorite = app.favorites.contains(stream.id)
-                                app.favorites.toggle(stream)
-                                app.flash(if (wasFavorite) "Removed from Favorites" else "Added to Favorites")
-                            },
+                            // No multiview from here, as on the Apple TV: Search is itself a cover.
+                            onLongClick = { menus.show(stream.displayName.title, listOf(favoriteAction(app, stream))) },
                         ) { focused -> ChannelTile(stream, focused) }
                     }
                 }

@@ -54,6 +54,14 @@ class CategoryGroupTests {
         assertGroup("DE: KINDER", WORLD)
     }
 
+    /** A live category as Beau's provider names them: a continent between bars. */
+    @Test
+    fun testBarMarkerFromARealProvider() {
+        assertGroup("|NA| USA Sports", SPORTS)
+        assertGroup("|NA| USA News", NEWS)
+        assertGroup("|NA| USA Kids", KIDS)
+    }
+
     @Test
     fun testEnglishMarkersDoNotCountAsForeign() {
         assertGroup("USA", SHOWS)

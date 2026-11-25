@@ -48,15 +48,25 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.beauahill.hilltv.core.CategoryName
+import com.beauahill.hilltv.core.ChannelName
 import com.beauahill.hilltv.core.LiveStream
 import com.beauahill.hilltv.core.XtreamCategory
+import com.beauahill.hilltv.core.displayName
 import com.beauahill.hilltv.model.EPGStore
 import com.beauahill.hilltv.model.LoadState
 import java.time.Instant
@@ -160,10 +170,128 @@ fun CategoryColumn(
                     textStyle = Type.meta,
                     onFocusChanged = { if (it) onFocus(category) },
                 ) {
-                    Txt(category.name, maxLines = 1)
+                    CategoryNameLabel(category.displayName)
                 }
             }
         }
+    }
+}
+
+/**
+ * A category's name as the app shows it: the name, then the labels the
+ * provider put around it ("EN", "MULTISUB"), smaller and fainter. Two
+ * categories can differ only by a label, so the labels always show.
+ *
+ * The labels take the name's color at lower strength, so they flip with it
+ * in rows and chips that fill on focus.
+ */
+@Composable
+fun CategoryNameLabel(name: CategoryName, modifier: Modifier = Modifier, strikethrough: Boolean = false) {
+    val labelColor = LocalContentColor.current.copy(alpha = 0.65f)
+    NameWithLabels(
+        modifier,
+        spacing = 5.dp,
+        title = {
+            Txt(
+                name.title,
+                style = if (strikethrough) LocalTextStyle.current.copy(textDecoration = TextDecoration.LineThrough) else LocalTextStyle.current,
+                maxLines = 1,
+            )
+        },
+        labels = name.detail?.let { detail -> { Txt(detail, style = Type.small, color = labelColor, maxLines = 1) } },
+    )
+}
+
+/**
+ * A name with small labels after it, on one baseline. The labels are
+ * measured first and always get their width; the name takes what is left
+ * and is cut short if it has to be. With no limit on width (inside a chip
+ * in a scrolling row) both are as wide as their text. A `Row` with a
+ * weighted child can't do this: with no limit on width the weighted child
+ * gets no room at all.
+ */
+@Composable
+private fun NameWithLabels(
+    modifier: Modifier,
+    spacing: Dp,
+    title: @Composable () -> Unit,
+    labels: (@Composable () -> Unit)?,
+) {
+    Layout(
+        content = {
+            title()
+            labels?.invoke()
+        },
+        modifier = modifier,
+    ) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val labelsPlaced = measurables.getOrNull(1)?.measure(loose)
+        val gap = if (labelsPlaced != null) spacing.roundToPx() else 0
+        val titleMax = if (constraints.hasBoundedWidth) {
+            (constraints.maxWidth - gap - (labelsPlaced?.width ?: 0)).coerceAtLeast(0)
+        } else {
+            Constraints.Infinity
+        }
+        val titlePlaced = measurables[0].measure(loose.copy(maxWidth = titleMax))
+
+        fun baseline(placeable: Placeable): Int =
+            placeable[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: placeable.height
+
+        val titleBase = baseline(titlePlaced)
+        val labelsBase = labelsPlaced?.let(::baseline) ?: 0
+        val line = maxOf(titleBase, labelsBase)
+        val width = (titlePlaced.width + gap + (labelsPlaced?.width ?: 0)).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val height = maxOf(
+            titlePlaced.height + line - titleBase,
+            (labelsPlaced?.height ?: 0) + line - labelsBase,
+        ).coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(width, height) {
+            titlePlaced.place(0, line - titleBase)
+            labelsPlaced?.place(titlePlaced.width + gap, line - labelsBase)
+        }
+    }
+}
+
+enum class NameLayout { STACKED, INLINE }
+
+/**
+ * A channel's name as the app shows it: the name itself, with the country
+ * and quality labels the provider wrapped around it shown small and muted.
+ * The labels go underneath, or after the name where a row already has a
+ * second line.
+ *
+ * The name takes the color of its surroundings. Set `inFocusRow` inside rows
+ * that fill blue on focus, so the muted labels flip to dark with the rest.
+ * Cards keep their text color on focus, so leave it off there.
+ */
+@Composable
+fun ChannelNameLabel(
+    name: ChannelName,
+    modifier: Modifier = Modifier,
+    style: TextStyle = Type.body,
+    detailStyle: TextStyle = Type.small,
+    layout: NameLayout = NameLayout.STACKED,
+    titleLines: Int = 1,
+    weight: FontWeight? = null,
+    color: Color = Color.Unspecified,
+    inFocusRow: Boolean = false,
+    /** Stacked only: keep the second line's height when there are no labels. */
+    keepsDetailLine: Boolean = false,
+) {
+    val detailColor = if (inFocusRow) secondaryColor() else Theme.muted
+    when (layout) {
+        NameLayout.STACKED -> Column(modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Txt(name.title, style = style, color = color, maxLines = titleLines, weight = weight)
+            val detail = name.detail ?: if (keepsDetailLine) " " else null
+            if (detail != null) Txt(detail, style = detailStyle, color = detailColor, maxLines = 1)
+        }
+        // The labels are what tells two feeds apart, so a long name gives way first.
+        NameLayout.INLINE -> NameWithLabels(
+            modifier,
+            spacing = 6.dp,
+            title = { Txt(name.title, style = style, color = color, maxLines = titleLines, weight = weight) },
+            labels = name.detail?.let { detail -> { Txt(detail, style = detailStyle, color = detailColor, maxLines = 1) } },
+        )
     }
 }
 
@@ -229,7 +357,11 @@ fun ChannelTile(stream: LiveStream, focused: Boolean, modifier: Modifier = Modif
         Box(Modifier.focusScaled(focused).focusRing(focused, 5.dp)) {
             ChannelLogo(stream.iconURL, width = 130.dp, height = 80.dp)
         }
-        Txt(stream.name, Modifier.padding(horizontal = 4.5.dp), Type.small, Theme.text, maxLines = 1, weight = FontWeight.SemiBold)
+        // The second line is always there, so tiles in a rail stay the same height.
+        ChannelNameLabel(
+            stream.displayName, Modifier.padding(horizontal = 4.5.dp),
+            style = Type.small, weight = FontWeight.SemiBold, color = Theme.text, keepsDetailLine = true,
+        )
     }
 }
 
@@ -251,7 +383,7 @@ fun LiveNowCard(stream: LiveStream, epg: EPGStore, focused: Boolean, modifier: M
         ) {
             ChannelLogo(stream.iconURL, width = 55.dp, height = 37.dp)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Txt(stream.name, style = Type.meta, color = Theme.text, maxLines = 1, weight = FontWeight.SemiBold)
+                ChannelNameLabel(stream.displayName, style = Type.meta, layout = NameLayout.INLINE, weight = FontWeight.SemiBold, color = Theme.text)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (current != null) Box(Modifier.size(5.dp).background(Theme.live, CircleShape))
                     // A blank line holds the height until the listing arrives.

@@ -197,9 +197,13 @@ fun MoviesScreen(model: MoviesModel) {
                 )
             }
             Box(Modifier.weight(1f).fillMaxHeight()) {
-                PosterGrid(model.movies, key = { it.id }, Modifier.fillMaxSize()) { movie ->
-                    TVCard(onClick = { model.path.add(Route.Movie(movie)) }) { focused ->
-                        PosterCard(movie.name, movie.posterURL, focused, subtitle = movie.rating?.let(::ratingLabel))
+                // A new grid per category, so each one opens at its top instead of
+                // where the last one was scrolled to.
+                key(model.selectedCategoryID) {
+                    PosterGrid(model.movies, key = { it.id }, Modifier.fillMaxSize()) { movie ->
+                        TVCard(onClick = { model.path.add(Route.Movie(movie)) }) { focused ->
+                            PosterCard(movie.name, movie.posterURL, focused, subtitle = movie.rating?.let(::ratingLabel))
+                        }
                     }
                 }
                 LoadStateView(model.movieState, emptyText = "No movies in this category") { scope.launch { model.retry() } }

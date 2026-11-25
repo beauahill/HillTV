@@ -87,6 +87,8 @@ fun Txt(
     textAlign: TextAlign = TextAlign.Unspecified,
     weight: FontWeight? = null,
     tabular: Boolean = false,
+    /** Lines to keep room for, so what is below doesn't move when the text is shorter. */
+    minLines: Int = 1,
 ) {
     val resolved = style.merge(
         TextStyle(
@@ -96,7 +98,7 @@ fun Txt(
             fontFeatureSettings = if (tabular) Type.tabular else null,
         )
     )
-    BasicText(text, modifier, resolved, overflow = ellipsis, maxLines = maxLines, softWrap = maxLines != 1)
+    BasicText(text, modifier, resolved, overflow = ellipsis, maxLines = maxLines, minLines = minLines, softWrap = maxLines != 1)
 }
 
 @Composable
