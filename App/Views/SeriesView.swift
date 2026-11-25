@@ -133,6 +133,9 @@ struct SeriesView: View {
                     }
                     .buttonStyle(TVCardButtonStyle())
                 }
+                // A new grid per category, so each one opens at its top instead of
+                // where the last one was scrolled to.
+                .id(model.selectedCategoryID)
                 .frame(maxWidth: .infinity)
                 .overlay {
                     LoadStateView(state: model.itemState, emptyText: "No series in this category") { model.retry() }
