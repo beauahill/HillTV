@@ -11,9 +11,10 @@ import SwiftUI
 /// Every tile is its own connection to the provider. One channel always
 /// plays. A channel that would go past the account's reported connections
 /// (`AppModel.multiviewLimit`) asks first, once, and the answer is kept.
-/// Tiles are always AVPlayer with the HLS URL, like the Live TV preview, and
-/// each asks for a picture no bigger than it is shown
-/// (`Multiview.pictureCap`).
+/// Tiles are AVPlayer with the HLS URL, like the Live TV preview, and each
+/// asks for a picture no bigger than it is shown (`Multiview.pictureCap`).
+/// Settings > Multiview has a trial that plays them as raw MPEG-TS through
+/// KSPlayer instead (`AppModel.multiviewPlaysTS`).
 ///
 /// The grid stays inside the safe area, so no tile or focus ring is lost to
 /// a TV's overscan. Only a tile shown full screen runs to the edges.
@@ -70,7 +71,8 @@ struct MultiviewView: View {
     /// Why the multiview can't work here, if it can't. The connection count
     /// isn't such a reason: one channel always plays, and more is a question.
     private var unavailableReason: String? {
-        app.previewSupported ? nil : "Multiview plays channels as HLS, which this provider doesn't offer."
+        if app.multiviewPlaysTS || app.previewSupported { return nil }
+        return "Multiview plays channels as HLS, which this provider doesn't offer."
     }
 
     /// The question is up when the plus tile asked, or when a channel added
@@ -186,7 +188,8 @@ struct MultiviewView: View {
         } label: {
             MultiviewTile(
                 stream: stream,
-                url: isPlaying ? client.liveURL(streamID: stream.id, format: .hls) : nil,
+                url: isPlaying ? client.liveURL(streamID: stream.id, format: app.multiviewPlaysTS ? .mpegts : .hls) : nil,
+                usesKSPlayer: app.multiviewPlaysTS,
                 attempt: attempts[stream.id] ?? 0,
                 muted: stream.id != soundStreamID,
                 maxResolution: cap.map { CGSize(width: $0.width, height: $0.height) },
@@ -470,6 +473,8 @@ private struct MultiviewTile: View {
     let stream: LiveStream
     /// Nil while nothing should play: just opened, or the app is in the background.
     let url: URL?
+    /// The MPEG-TS trial: KSPlayer plays the tile instead of the Apple player.
+    let usesKSPlayer: Bool
     let attempt: Int
     let muted: Bool
     let maxResolution: CGSize?
@@ -487,14 +492,20 @@ private struct MultiviewTile: View {
             Theme.surface
             ChannelLogo(url: stream.iconURL, size: CGSize(width: 240, height: 150))
             if let url, error == nil {
-                LivePreviewView(
-                    url: url,
-                    userAgent: AppModel.userAgent,
-                    muted: muted,
-                    maxResolution: maxResolution,
-                    keepsDisplayAwake: true,
-                    onError: onError
-                )
+                Group {
+                    if usesKSPlayer {
+                        KSPlayerTileView(url: url, userAgent: AppModel.userAgent, muted: muted, onError: onError)
+                    } else {
+                        LivePreviewView(
+                            url: url,
+                            userAgent: AppModel.userAgent,
+                            muted: muted,
+                            maxResolution: maxResolution,
+                            keepsDisplayAwake: true,
+                            onError: onError
+                        )
+                    }
+                }
                 // One player per channel and per try.
                 .id("\(stream.id)-\(attempt)")
             }

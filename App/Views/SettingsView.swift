@@ -126,6 +126,27 @@ struct SettingsView: View {
                         .font(.tvSmall)
                         .foregroundStyle(Theme.muted)
                         .padding(.horizontal, 24)
+
+                    if app.multiviewTSAvailable {
+                        ForEach([false, true], id: \.self) { usesTS in
+                            Button {
+                                app.multiviewUsesTS = usesTS
+                            } label: {
+                                HStack {
+                                    Text(usesTS ? "Play channels as MPEG-TS (KSPlayer, trial)" : "Play channels as HLS (Apple player)")
+                                    Spacer()
+                                    if app.multiviewUsesTS == usesTS {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .buttonStyle(TVRowButtonStyle(isSelected: app.multiviewUsesTS == usesTS, font: .tvMeta))
+                        }
+                        Text("If channels in the multiview keep stopping each other, try MPEG-TS. It asks your provider for each channel in a different way, which some providers count differently. It may make no difference.")
+                            .font(.tvSmall)
+                            .foregroundStyle(Theme.muted)
+                            .padding(.horizontal, 24)
+                    }
                 }
 
                 SettingsCard(title: "Categories") {

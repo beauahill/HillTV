@@ -40,6 +40,12 @@ final class AppModel {
         didSet { UserDefaults.standard.set(multiviewIgnoresLimit, forKey: Self.multiviewLimitKey) }
     }
 
+    /// A trial: multiview tiles play raw MPEG-TS through KSPlayer instead of
+    /// HLS through the Apple player. Off unless the viewer turns it on.
+    var multiviewUsesTS: Bool {
+        didSet { UserDefaults.standard.set(multiviewUsesTS, forKey: Self.multiviewTSKey) }
+    }
+
     let favorites = FavoritesStore()
     let watchHistory = WatchHistoryStore()
     let categoryVisibility = CategoryVisibilityStore()
@@ -54,6 +60,7 @@ final class AppModel {
     private static let engineKey = "playerEngine"
     private static let previewKey = "livePreview"
     private static let multiviewLimitKey = "multiviewIgnoresLimit"
+    private static let multiviewTSKey = "multiviewUsesTS"
     private static let playbackKey = "playbackSettings.v1"
 
     init() {
@@ -68,6 +75,7 @@ final class AppModel {
         playback = UserDefaults.standard.data(forKey: Self.playbackKey)
             .flatMap { try? JSONDecoder().decode(PlaybackSettings.self, from: $0) } ?? PlaybackSettings()
         multiviewIgnoresLimit = UserDefaults.standard.bool(forKey: Self.multiviewLimitKey)
+        multiviewUsesTS = UserDefaults.standard.bool(forKey: Self.multiviewTSKey)
         previewChoice = UserDefaults.standard.string(forKey: Self.previewKey).flatMap(LivePreviewMode.init(rawValue:))
     }
 
@@ -90,6 +98,18 @@ final class AppModel {
     /// connection count, four at most, unless the viewer chose to try more.
     var multiviewLimit: Int {
         Multiview.tileLimit(maxConnections: authInfo?.user.maxConnections, ignoringLimit: multiviewIgnoresLimit)
+    }
+
+    /// Whether the MPEG-TS trial can be offered: the build has KSPlayer and
+    /// the panel offers TS, or doesn't say what it offers.
+    var multiviewTSAvailable: Bool {
+        let formats = authInfo?.user.allowedOutputFormats ?? []
+        return KSPlayerSupport.isLinked && (formats.isEmpty || formats.contains("ts"))
+    }
+
+    /// True when the multiview's tiles are KSPlayer with MPEG-TS.
+    var multiviewPlaysTS: Bool {
+        multiviewUsesTS && multiviewTSAvailable
     }
 
     /// The connection count the panel reports, when it reports one.

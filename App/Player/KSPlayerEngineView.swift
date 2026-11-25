@@ -109,6 +109,64 @@ private final class ProgressBox {
     var tracker: ProgressTracker?
 }
 
+/// One multiview tile played by KSPlayer: the picture alone, no controls.
+///
+/// A trial. The multiview's tiles are normally the Apple player with HLS,
+/// and on an account with one connection the provider was seen closing one
+/// HLS stream when a second started. This plays the raw MPEG-TS stream
+/// instead, one long-lived request per channel, to find out whether the
+/// provider treats that differently. Nothing says it will.
+struct KSPlayerTileView: View {
+    let url: URL
+    let muted: Bool
+    /// The stream failed or ended. Live streams don't end by themselves.
+    var onError: (String) -> Void = { _ in }
+
+    @State private var coordinator = KSVideoPlayer.Coordinator()
+    /// Made once: KSPlayer only reads the options when the player is created.
+    @State private var options: KSOptions
+
+    init(url: URL, userAgent: String, muted: Bool, onError: @escaping (String) -> Void = { _ in }) {
+        self.url = url
+        self.muted = muted
+        self.onError = onError
+        let options = KSOptions()
+        options.isLive = true
+        options.userAgent = userAgent
+        options.autoSelectEmbedSubtitle = false
+        // Several players at once: none of them should claim the remote's
+        // play and pause for itself.
+        options.registerRemoteControll = false
+        _options = State(initialValue: options)
+    }
+
+    var body: some View {
+        KSVideoPlayer(coordinator: coordinator, url: url, options: options)
+            .onStateChanged { _, _ in
+                // The player doesn't exist when mute is first set, so set it
+                // again as the player comes up.
+                setMuted(muted)
+            }
+            .onFinish { _, error in
+                onError(error?.localizedDescription ?? "The stream ended. The provider may have closed it.")
+            }
+            // The tile's button holds focus, never the picture.
+            .focusable(false)
+            .allowsHitTesting(false)
+            .onAppear { setMuted(muted) }
+            .onChange(of: muted) { _, value in
+                setMuted(value)
+            }
+    }
+
+    /// Only on a change: the coordinator announces every assignment.
+    private func setMuted(_ value: Bool) {
+        if coordinator.isMuted != value {
+            coordinator.isMuted = value
+        }
+    }
+}
+
 #else
 
 enum KSPlayerSupport {
@@ -127,6 +185,22 @@ struct KSPlayerEngineView: View {
 
     var body: some View {
         Text("KSPlayer isn't included in this build.")
+    }
+}
+
+struct KSPlayerTileView: View {
+    let url: URL
+    let muted: Bool
+    var onError: (String) -> Void = { _ in }
+
+    init(url: URL, userAgent: String, muted: Bool, onError: @escaping (String) -> Void = { _ in }) {
+        self.url = url
+        self.muted = muted
+        self.onError = onError
+    }
+
+    var body: some View {
+        Color.clear
     }
 }
 
