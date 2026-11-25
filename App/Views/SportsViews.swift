@@ -8,6 +8,8 @@ import SwiftUI
 struct GamePick: Identifiable {
     let game: SportsGame
     let matches: [GameChannelMatch]
+    /// The chosen channel goes into the multiview instead of the player.
+    var forMultiview = false
 
     var id: String { game.id }
 }
@@ -269,7 +271,7 @@ struct GameChannelPicker: View {
 
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Eyebrow(text: "Where to watch")
+                    Eyebrow(text: pick.forMultiview ? "Add to Multiview" : "Where to watch")
                     Text("\(pick.game.away.shortName) at \(pick.game.home.shortName)")
                         .font(.tvTitle)
                         .foregroundStyle(Theme.text)

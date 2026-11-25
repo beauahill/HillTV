@@ -34,6 +34,8 @@ struct LiveTVView: View {
     @State private var picking: GamePick?
     /// The channel chosen in that list, played once the list has closed.
     @State private var pendingStream: LiveStream?
+    /// That channel was chosen for the multiview, not the player.
+    @State private var pendingForMultiview = false
     /// Set to move a channel within the list on screen.
     @State private var moving: ChannelMove?
     @Environment(\.scenePhase) private var scenePhase
@@ -127,9 +129,32 @@ struct LiveTVView: View {
         }
     }
 
+    /// Hold Select on a game: the same rule as opening it. One channel that
+    /// names both teams goes straight into the multiview; anything less sure
+    /// asks which channel first.
+    private func addToMultiview(_ game: SportsGame) {
+        let matches = scores.matches[game.id] ?? []
+        let sure = matches.filter { $0.strength == .teams }
+        if sure.count == 1, let only = sure.first {
+            app.multiview.addAndOpen(only.stream, limit: app.multiviewLimit)
+        } else if !matches.isEmpty {
+            let pick = GamePick(game: game, matches: Array(matches.prefix(24)), forMultiview: true)
+            Task { @MainActor in
+                // The list opens once the menu has closed.
+                try? await Task.sleep(for: .milliseconds(350))
+                picking = pick
+            }
+        }
+    }
+
     private func playPending() {
         guard let stream = pendingStream else { return }
         pendingStream = nil
+        if pendingForMultiview {
+            pendingForMultiview = false
+            app.multiview.addAndOpen(stream, limit: app.multiviewLimit)
+            return
+        }
         play(stream)
     }
 
@@ -229,6 +254,7 @@ struct LiveTVView: View {
             GameChannelPicker(pick: pick) { stream in
                 // Play after this list has closed; two covers can't swap in one step.
                 pendingStream = stream
+                pendingForMultiview = pick.forMultiview
                 picking = nil
             }
         }
@@ -432,6 +458,14 @@ struct LiveTVView: View {
             }
             .buttonStyle(TVRowButtonStyle(minHeight: 128))
             .focused($focus, equals: .game(game.id))
+            .contextMenu {
+                // Only once a channel has been found for the game.
+                if !(scores.matches[game.id] ?? []).isEmpty {
+                    Button("Add to Multiview") {
+                        addToMultiview(game)
+                    }
+                }
+            }
         }
 
         if scores.hasLoaded, list.isEmpty {
