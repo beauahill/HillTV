@@ -149,6 +149,23 @@ struct SettingsView: View {
                     }
                 }
 
+                SettingsCard(title: "Sync") {
+                    Button {
+                        app.syncShowing = true
+                    } label: {
+                        HStack {
+                            Label("Sync with your phone", systemImage: "qrcode")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                    }
+                    .buttonStyle(TVRowButtonStyle(font: .tvMeta))
+                    Text("Scan a code with a phone on the same Wi-Fi to sign this TV in, or to save its hidden categories, favorites and channel order and load them into another TV. Nothing is stored anywhere but your TVs and your phone.")
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                }
+
                 SettingsCard(title: "Categories") {
                     Button {
                         showingCategories = true

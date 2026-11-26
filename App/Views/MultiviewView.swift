@@ -32,7 +32,6 @@ struct MultiviewView: View {
 
     private enum Cell: Hashable {
         case tile(Int)
-        case add
     }
 
     @FocusState private var focus: Cell?
@@ -44,7 +43,7 @@ struct MultiviewView: View {
     @State private var picking = false
     /// The channel picked in that list, added once the list has closed.
     @State private var picked: LiveStream?
-    /// True while the plus tile is asking about the connection count.
+    /// True while Add a channel is asking about the connection count.
     @State private var askingForMore = false
     /// Set when the answer was yes with no channel waiting: open the list next.
     @State private var pickAfterAsking = false
@@ -62,8 +61,8 @@ struct MultiviewView: View {
     private static let spacing: CGFloat = 12
 
     private var tiles: [LiveStream] { app.multiview.tiles.streams }
-    /// The plus tile shows until the screen is full. Whether the account has
-    /// room for another channel is asked when it is pressed.
+    /// Add a channel is offered until the screen is full. Whether the account
+    /// has room for another channel is asked when it is picked.
     private var canAdd: Bool { tiles.count < Multiview.mostTiles }
     private var soundStreamID: Int? { soundID ?? tiles.first?.id }
     private var isPlaying: Bool { ready && scenePhase == .active }
@@ -75,7 +74,7 @@ struct MultiviewView: View {
         return "Multiview plays channels as HLS, which this provider doesn't offer."
     }
 
-    /// The question is up when the plus tile asked, or when a channel added
+    /// The question is up when Add a channel asked, or when a channel added
     /// from a hold-Select menu is waiting on it.
     private var asking: Binding<Bool> {
         Binding(
@@ -157,17 +156,11 @@ struct MultiviewView: View {
                 spacing: Self.spacing,
                 insets: geo.safeAreaInsets
             ) {
+                // Channels only. Adding one is in each channel's hold-Select
+                // menu (Beau's pick), so two channels sit side by side
+                // instead of sharing a two by two grid with an add box.
                 ForEach(tiles) { stream in
                     tileButton(stream)
-                }
-                if canAdd {
-                    Button(action: addPressed) {
-                        AddTile()
-                    }
-                    .buttonStyle(TVCardButtonStyle())
-                    .focused($focus, equals: .add)
-                    .opacity(fullScreenID == nil ? 1 : 0)
-                    .disabled(fullScreenID != nil)
                 }
             }
         }
@@ -205,6 +198,15 @@ struct MultiviewView: View {
             Button(isFullScreen ? "Back to the grid" : "Full screen") {
                 fullScreenID = isFullScreen ? nil : stream.id
             }
+            if canAdd {
+                Button("Add a channel") {
+                    Task { @MainActor in
+                        // The list is a cover; it opens once this menu has closed.
+                        try? await Task.sleep(for: .milliseconds(350))
+                        addPressed()
+                    }
+                }
+            }
             Button("Remove", role: .destructive) {
                 remove(stream.id)
             }
@@ -229,6 +231,10 @@ struct MultiviewView: View {
         errors[streamID] = nil
         attempts[streamID] = nil
         app.multiview.remove(streamID)
+        // With no add box, an empty multiview would have nothing to focus.
+        if app.multiview.tiles.isEmpty {
+            app.multiview.isShowing = false
+        }
     }
 
     // MARK: Messages over the grid
@@ -240,7 +246,7 @@ struct MultiviewView: View {
             }
             Spacer()
             if showsHint, fullScreenID == nil, !tiles.isEmpty {
-                Banner(text: "Select: full screen. Hold Select: more. Menu: close.")
+                Banner(text: "Select: full screen. Hold Select: add, remove and more. Menu: close.")
             }
         }
         .padding(48)
@@ -276,9 +282,11 @@ struct MultiviewView: View {
         app.favorites.channels.filter { !app.multiview.tiles.contains($0.id) }
     }
 
-    /// The plus tile. One more channel than the account reports connections
-    /// for is a question first.
+    /// Add a channel, from a channel's hold-Select menu. One more channel
+    /// than the account reports connections for is a question first.
     private func addPressed() {
+        // The new channel takes focus when it arrives, so show the grid.
+        fullScreenID = nil
         if tiles.count < app.multiviewLimit {
             picking = true
         } else {
@@ -317,7 +325,7 @@ struct MultiviewView: View {
     }
 }
 
-/// The list of channels the plus tile offers: favorites not on screen yet.
+/// The list Add a channel offers: favorites not on screen yet.
 private struct MultiviewPicker: View {
     let candidates: [LiveStream]
     let hasFavorites: Bool
@@ -552,31 +560,6 @@ private struct MultiviewTile: View {
         .overlay {
             if isFocused, !isFullScreen {
                 RoundedRectangle(cornerRadius: corner, style: .continuous)
-                    .strokeBorder(Theme.accent, lineWidth: Theme.focusRing)
-            }
-        }
-    }
-}
-
-private struct AddTile: View {
-    @Environment(\.isFocused) private var isFocused
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "plus")
-                .font(.system(size: 64, weight: .medium))
-            Text("Add a channel")
-                .font(.tvMeta)
-        }
-        .foregroundStyle(isFocused ? Theme.text : Theme.muted)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            isFocused ? Theme.controlRaised : Theme.surface,
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-        )
-        .overlay {
-            if isFocused {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Theme.accent, lineWidth: Theme.focusRing)
             }
         }

@@ -39,6 +39,14 @@ final class FavoritesStore {
         persist()
     }
 
+    /// From a settings file the phone loaded. Replaces this TV's favorites,
+    /// keeping the first of any channel listed twice.
+    func replace(with streams: [LiveStream]) {
+        var seen = Set<Int>()
+        channels = streams.filter { seen.insert($0.id).inserted }
+        persist()
+    }
+
     private func persist() {
         if let data = try? JSONEncoder().encode(channels) {
             UserDefaults.standard.set(data, forKey: Self.key)

@@ -51,6 +51,10 @@ final class AppModel {
     let categoryVisibility = CategoryVisibilityStore()
     let channelOrder = ChannelOrderStore()
     let multiview = MultiviewStore()
+    /// The phone page's web server, for Settings > Sync and the login screen.
+    let sync = SyncServer()
+    /// `RootView` shows the Sync screen while this is true.
+    var syncShowing = false
 
     static let userAgent: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -77,6 +81,7 @@ final class AppModel {
         multiviewIgnoresLimit = UserDefaults.standard.bool(forKey: Self.multiviewLimitKey)
         multiviewUsesTS = UserDefaults.standard.bool(forKey: Self.multiviewTSKey)
         previewChoice = UserDefaults.standard.string(forKey: Self.previewKey).flatMap(LivePreviewMode.init(rawValue:))
+        sync.attach(self)
     }
 
     /// Whether Live TV plays the focused channel in its detail pane.
@@ -171,6 +176,11 @@ final class AppModel {
         let client = XtreamClient(account: account, userAgent: Self.userAgent)
         let info = try await client.authenticate()
 
+        // Signing in over another login (the phone page allows it) skips
+        // sign out, so drop what belongs to the old account's channels.
+        if self.client != nil {
+            multiview.clear()
+        }
         AccountStore.save(account)
         watchHistory.activate(account: account)
         categoryVisibility.activate(account: account)

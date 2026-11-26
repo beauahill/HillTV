@@ -56,6 +56,12 @@ final class CategoryVisibilityStore {
         persist()
     }
 
+    /// From a settings file the phone loaded. Replaces every choice.
+    func replace(with visibility: CategoryVisibility) {
+        self.visibility = visibility
+        persist()
+    }
+
     private static func loadAll() -> [String: CategoryVisibility] {
         guard let data = UserDefaults.standard.data(forKey: key),
               let all = try? JSONDecoder().decode([String: CategoryVisibility].self, from: data) else { return [:] }

@@ -42,6 +42,21 @@ struct RootView: View {
         .foregroundStyle(Theme.text)
         .tint(Theme.accent)
         .preferredColorScheme(.dark)
+        // Above the login screen and the shell, so it stays up when the
+        // phone signs this TV in and everything below it is rebuilt.
+        .fullScreenCover(isPresented: syncShowing) {
+            SyncView()
+                .tint(Theme.accent)
+                .preferredColorScheme(.dark)
+                .environment(app)
+        }
+    }
+
+    private var syncShowing: Binding<Bool> {
+        Binding(
+            get: { app.syncShowing },
+            set: { app.syncShowing = $0 }
+        )
     }
 }
 
