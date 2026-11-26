@@ -170,11 +170,9 @@ final class SyncServer {
 
     private func handle(_ request: SyncRequest, on connection: NWConnection) async {
         let route = gate.route(request)
-        let wasLocked = isLocked
+        // The screen shows the lock in red on its own; the activity list is
+        // only for what the phone did, each line with a tick.
         isLocked = gate.isLocked
-        if isLocked, !wasLocked {
-            note("Too many wrong codes. Close Sync and open it again to get a new code.")
-        }
 
         let response: SyncResponse
         switch route {
