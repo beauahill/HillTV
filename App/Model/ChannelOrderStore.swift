@@ -48,6 +48,12 @@ final class ChannelOrderStore {
         persist()
     }
 
+    /// From a settings file the phone loaded. Replaces every saved order.
+    func replace(with order: ChannelOrder) {
+        self.order = order
+        persist()
+    }
+
     private static func loadAll() -> [String: ChannelOrder] {
         guard let data = UserDefaults.standard.data(forKey: key),
               let all = try? JSONDecoder().decode([String: ChannelOrder].self, from: data) else { return [:] }

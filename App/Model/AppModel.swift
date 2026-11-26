@@ -51,6 +51,10 @@ final class AppModel {
     let categoryVisibility = CategoryVisibilityStore()
     let channelOrder = ChannelOrderStore()
     let multiview = MultiviewStore()
+    /// The phone page's web server, for Settings > Sync and the login screen.
+    let sync = SyncServer()
+    /// `RootView` shows the Sync screen while this is true.
+    var syncShowing = false
 
     static let userAgent: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -77,6 +81,7 @@ final class AppModel {
         multiviewIgnoresLimit = UserDefaults.standard.bool(forKey: Self.multiviewLimitKey)
         multiviewUsesTS = UserDefaults.standard.bool(forKey: Self.multiviewTSKey)
         previewChoice = UserDefaults.standard.string(forKey: Self.previewKey).flatMap(LivePreviewMode.init(rawValue:))
+        sync.attach(self)
     }
 
     /// Whether Live TV plays the focused channel in its detail pane.

@@ -62,6 +62,15 @@ struct LoginView: View {
             }
             .buttonStyle(TVActionButtonStyle(prominent: true))
             .disabled(!canSubmit)
+
+            // Typing a login with the remote is slow; a phone on the same
+            // Wi-Fi can do it from the Sync page instead.
+            Button {
+                app.syncShowing = true
+            } label: {
+                Label("Use your phone instead", systemImage: "qrcode")
+            }
+            .buttonStyle(TVActionButtonStyle())
         }
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
