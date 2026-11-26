@@ -86,6 +86,32 @@ extension Multiview {
         return maxConnections - Swift.max(activeConnections, playingHere) > 0
     }
 
+    /// Why no other saved account took a channel, for the multiview to say.
+    public enum BorrowRefusal: Equatable, Sendable {
+        /// The panel said every connection is in use.
+        case noneFree
+        /// The panel doesn't report how many connections are in use.
+        case notReported
+        /// Signing in to the account failed.
+        case signInFailed
+    }
+
+    /// One sentence about the other accounts, worst case first.
+    public static func borrowMessage(_ refusals: [BorrowRefusal]) -> String? {
+        guard !refusals.isEmpty else { return nil }
+        let one = refusals.count == 1
+        let subject = one ? "Your other account on this server" : "Your other accounts on this server"
+        let reason: String
+        if refusals.allSatisfy({ $0 == .noneFree }) {
+            reason = one ? "has no connection free right now" : "have no connection free right now"
+        } else if refusals.contains(.signInFailed) {
+            reason = one ? "couldn't be signed in to" : "couldn't all be signed in to, or had no connection free"
+        } else {
+            reason = "can't be used: the provider doesn't say how many of " + (one ? "its" : "their") + " connections are in use"
+        }
+        return "\(subject) \(reason), so this channel plays on the account in use."
+    }
+
     /// How many channels the account in use takes before other accounts are
     /// asked. A panel that doesn't say gets the benefit of the doubt, as in
     /// `tileLimit`.
@@ -143,5 +169,12 @@ public struct MultiviewTiles: Equatable, Sendable {
     public mutating func removeAll() {
         streams = []
         accounts = [:]
+    }
+
+    /// For a removed account: its channels go.
+    public mutating func removeAll(onAccount key: String) {
+        let gone = Set(accounts.filter { $0.value == key }.keys)
+        streams.removeAll { gone.contains($0.id) }
+        for id in gone { accounts[id] = nil }
     }
 }

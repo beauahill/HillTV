@@ -51,12 +51,17 @@ final class MultiviewStore {
         guard let app else { return }
         let snapshot = tiles
         Task { @MainActor in
-            let key = await app.pickMultiviewAccount(for: snapshot)
+            let pick = await app.pickMultiviewAccount(for: snapshot)
             guard !tiles.contains(stream.id), tiles.streams.count < Multiview.mostTiles else { return }
-            if let key {
+            if let key = pick.key {
                 tiles.add(stream, limit: Multiview.mostTiles, account: key)
             } else if app.multiviewIgnoresLimit {
                 tiles.add(stream, limit: Multiview.mostTiles, account: app.currentAccountKey)
+                // Otherwise the other accounts' not being used would look
+                // like the old one-account behaviour, with no reason given.
+                if let message = Multiview.borrowMessage(pick.refusals) {
+                    show(message)
+                }
             } else {
                 waiting = stream
             }
@@ -78,6 +83,11 @@ final class MultiviewStore {
 
     func remove(_ streamID: Int) {
         tiles.remove(streamID)
+    }
+
+    /// For a removed account.
+    func removeTiles(onAccount key: String) {
+        tiles.removeAll(onAccount: key)
     }
 
     func clear() {

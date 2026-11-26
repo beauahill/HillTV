@@ -140,4 +140,24 @@ final class MultiviewTests: XCTestCase {
         tiles.removeAll()
         XCTAssertEqual(tiles.countByAccount, [:])
     }
+
+    func testRemovingAnAccountDropsItsChannels() {
+        var tiles = MultiviewTiles()
+        tiles.add(LiveStream(id: 1, name: "One"), limit: 4, account: "a")
+        tiles.add(LiveStream(id: 2, name: "Two"), limit: 4, account: "b")
+        tiles.add(LiveStream(id: 3, name: "Three"), limit: 4, account: "b")
+        tiles.removeAll(onAccount: "b")
+        XCTAssertEqual(tiles.streams.map(\.id), [1])
+        XCTAssertEqual(tiles.countByAccount, ["a": 1])
+    }
+
+    func testBorrowMessage() {
+        XCTAssertNil(Multiview.borrowMessage([]))
+        XCTAssertEqual(Multiview.borrowMessage([.noneFree]),
+                       "Your other account on this server has no connection free right now, so this channel plays on the account in use.")
+        XCTAssertEqual(Multiview.borrowMessage([.notReported]),
+                       "Your other account on this server can't be used: the provider doesn't say how many of its connections are in use, so this channel plays on the account in use.")
+        XCTAssertEqual(Multiview.borrowMessage([.noneFree, .signInFailed]),
+                       "Your other accounts on this server couldn't all be signed in to, or had no connection free, so this channel plays on the account in use.")
+    }
 }

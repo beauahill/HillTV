@@ -161,31 +161,40 @@ final class AppModel {
     /// Clients for other saved accounts, made when a channel first plays on one.
     private var otherClients: [String: XtreamClient] = [:]
 
-    /// The account a new multiview channel plays on: the one in use while it
-    /// has connections to spare, then another saved account on the same
-    /// server that the panel says has one free. Nil when none has room;
-    /// the multiview then asks (`ConnectionAsk`).
-    func pickMultiviewAccount(for tiles: MultiviewTiles) async -> String? {
-        guard let client else { return nil }
+    /// Where a new multiview channel plays: the account in use while it has
+    /// connections to spare, then another saved account on the same server
+    /// that the panel says has one free. Otherwise no account, with why each
+    /// other account on the server wasn't used; the multiview then asks
+    /// (`ConnectionAsk`), or says why under Try anyway.
+    func pickMultiviewAccount(for tiles: MultiviewTiles) async -> (key: String?, refusals: [Multiview.BorrowRefusal]) {
+        guard let client else { return (nil, []) }
         let current = AccountBook.key(client.account)
         let playing = tiles.countByAccount
         if playing[current, default: 0] < Multiview.ownLimit(maxConnections: authInfo?.user.maxConnections) {
-            return current
+            return (current, [])
         }
+        var refusals: [Multiview.BorrowRefusal] = []
         for other in book.others(onServerOf: client.account) {
             let key = AccountBook.key(other)
             // Asked now, not earlier: someone else may have started watching on it.
-            guard let info = try? await self.client(forAccount: key)?.authenticate() else { continue }
+            guard let info = try? await self.client(forAccount: key)?.authenticate() else {
+                refusals.append(.signInFailed)
+                continue
+            }
             authCache[key] = info
-            if Multiview.hasFreeConnection(
+            if info.user.maxConnections == nil || info.user.activeConnections == nil {
+                refusals.append(.notReported)
+            } else if Multiview.hasFreeConnection(
                 maxConnections: info.user.maxConnections,
                 activeConnections: info.user.activeConnections,
                 playingHere: playing[key, default: 0]
             ) {
-                return key
+                return (key, [])
+            } else {
+                refusals.append(.noneFree)
             }
         }
-        return nil
+        return (nil, refusals)
     }
 
     /// The client a multiview channel plays through. The account in use, or
@@ -240,6 +249,8 @@ final class AppModel {
         book.upsert(account)
         AccountStore.save(book)
         authCache[AccountBook.key(account)] = info
+        // A client made with the old password, if this login was saved before.
+        otherClients[AccountBook.key(account)] = nil
         activate(account)
         addingAccount = false
     }
@@ -264,6 +275,8 @@ final class AppModel {
         watchHistory.forget(accountKey: key)
         authCache[key] = nil
         otherClients[key] = nil
+        // Its channels would otherwise play on the account in use.
+        multiview.removeTiles(onAccount: key)
         guard wasCurrent else { return }
         if let next = book.current {
             activate(next)
