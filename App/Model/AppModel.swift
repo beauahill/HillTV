@@ -90,6 +90,7 @@ final class AppModel {
         multiviewUsesTS = UserDefaults.standard.bool(forKey: Self.multiviewTSKey)
         previewChoice = UserDefaults.standard.string(forKey: Self.previewKey).flatMap(LivePreviewMode.init(rawValue:))
         sync.attach(self)
+        multiview.attach(self)
     }
 
     /// Whether Live TV plays the focused channel in its detail pane.
@@ -155,6 +156,56 @@ final class AppModel {
     /// The key of the account in use (`AccountBook.key`).
     var currentAccountKey: String? { book.currentKey }
 
+    // MARK: Multiview across accounts
+
+    /// Clients for other saved accounts, made when a channel first plays on one.
+    private var otherClients: [String: XtreamClient] = [:]
+
+    /// The account a new multiview channel plays on: the one in use while it
+    /// has connections to spare, then another saved account on the same
+    /// server that the panel says has one free. Nil when none has room;
+    /// the multiview then asks (`ConnectionAsk`).
+    func pickMultiviewAccount(for tiles: MultiviewTiles) async -> String? {
+        guard let client else { return nil }
+        let current = AccountBook.key(client.account)
+        let playing = tiles.countByAccount
+        if playing[current, default: 0] < Multiview.ownLimit(maxConnections: authInfo?.user.maxConnections) {
+            return current
+        }
+        for other in book.others(onServerOf: client.account) {
+            let key = AccountBook.key(other)
+            // Asked now, not earlier: someone else may have started watching on it.
+            guard let info = try? await self.client(forAccount: key)?.authenticate() else { continue }
+            authCache[key] = info
+            if Multiview.hasFreeConnection(
+                maxConnections: info.user.maxConnections,
+                activeConnections: info.user.activeConnections,
+                playingHere: playing[key, default: 0]
+            ) {
+                return key
+            }
+        }
+        return nil
+    }
+
+    /// The client a multiview channel plays through. The account in use, or
+    /// another saved one; nil for an account that has since been removed.
+    func client(forAccount key: String?) -> XtreamClient? {
+        guard let key, let client else { return self.client }
+        if key == AccountBook.key(client.account) { return client }
+        if let made = otherClients[key] { return made }
+        guard let account = book.accounts.first(where: { AccountBook.key($0) == key }) else { return nil }
+        let made = XtreamClient(account: account, userAgent: Self.userAgent)
+        otherClients[key] = made
+        return made
+    }
+
+    /// Other saved accounts on the same server as the one in use.
+    var otherAccountsOnServer: [XtreamAccount] {
+        guard let account = client?.account else { return [] }
+        return book.others(onServerOf: account)
+    }
+
     /// The last account details seen for a saved account, if any.
     func accountDetails(_ key: String) -> XtreamAuthInfo? {
         authCache[key]
@@ -212,6 +263,7 @@ final class AppModel {
         AccountStore.save(book)
         watchHistory.forget(accountKey: key)
         authCache[key] = nil
+        otherClients[key] = nil
         guard wasCurrent else { return }
         if let next = book.current {
             activate(next)

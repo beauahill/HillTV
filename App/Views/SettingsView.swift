@@ -291,10 +291,14 @@ extension SettingsView {
         let reported: String
         switch app.reportedConnections {
         case nil: reported = "Your provider doesn't say how many connections this account has."
-        case 1?: reported = "Your provider reports 1 connection for this account."
-        case let count?: reported = "Your provider reports \(count) connections for this account."
+        case 1?: reported = "Your provider reports 1 connection for the account in use."
+        case let count?: reported = "Your provider reports \(count) connections for the account in use."
         }
-        return "\(reported) Every channel in the multiview is a connection. Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
+        let others = app.otherAccountsOnServer.count
+        let borrowing = others == 0
+            ? ""
+            : " Channels past that play on your \(others == 1 ? "other account" : "other \(others) accounts") on the same server when the provider says one has a connection free."
+        return "\(reported) Every channel in the multiview is a connection.\(borrowing) Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
     }
 
     fileprivate var hiddenSummary: String {

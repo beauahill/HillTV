@@ -74,7 +74,29 @@ public enum Multiview {
     }
 }
 
-/// The channels in the multiview, in the order they were added.
+extension Multiview {
+    /// Whether another saved account can take one more channel. Only when
+    /// the panel reports both its connection count and how many are in use:
+    /// borrowing a connection someone else in the house is watching on
+    /// would knock their stream off. The channels this multiview already
+    /// plays on that account count too, since a panel can be slow to
+    /// report a stream that just started.
+    public static func hasFreeConnection(maxConnections: Int?, activeConnections: Int?, playingHere: Int) -> Bool {
+        guard let maxConnections, let activeConnections else { return false }
+        return maxConnections - Swift.max(activeConnections, playingHere) > 0
+    }
+
+    /// How many channels the account in use takes before other accounts are
+    /// asked. A panel that doesn't say gets the benefit of the doubt, as in
+    /// `tileLimit`.
+    public static func ownLimit(maxConnections: Int?) -> Int {
+        Swift.max(1, maxConnections ?? mostTiles)
+    }
+}
+
+/// The channels in the multiview, in the order they were added, and the
+/// saved account each one plays on (`AccountBook.key`). Never a URL: those
+/// hold passwords.
 public struct MultiviewTiles: Equatable, Sendable {
     public enum AddResult: Equatable, Sendable {
         case added
@@ -84,8 +106,19 @@ public struct MultiviewTiles: Equatable, Sendable {
     }
 
     public private(set) var streams: [LiveStream] = []
+    private var accounts: [Int: String] = [:]
 
     public init() {}
+
+    /// The account a channel plays on, nil for one added without one.
+    public func account(for streamID: Int) -> String? {
+        accounts[streamID]
+    }
+
+    /// How many channels play on each account.
+    public var countByAccount: [String: Int] {
+        accounts.values.reduce(into: [:]) { $0[$1, default: 0] += 1 }
+    }
 
     public var isEmpty: Bool { streams.isEmpty }
 
@@ -94,18 +127,21 @@ public struct MultiviewTiles: Equatable, Sendable {
     }
 
     @discardableResult
-    public mutating func add(_ stream: LiveStream, limit: Int) -> AddResult {
+    public mutating func add(_ stream: LiveStream, limit: Int, account: String? = nil) -> AddResult {
         if contains(stream.id) { return .alreadyThere }
         guard streams.count < limit else { return .full }
         streams.append(stream)
+        accounts[stream.id] = account
         return .added
     }
 
     public mutating func remove(_ streamID: Int) {
         streams.removeAll { $0.id == streamID }
+        accounts[streamID] = nil
     }
 
     public mutating func removeAll() {
         streams = []
+        accounts = [:]
     }
 }

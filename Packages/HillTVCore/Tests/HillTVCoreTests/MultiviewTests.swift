@@ -106,4 +106,38 @@ final class MultiviewTests: XCTestCase {
         tiles.removeAll()
         XCTAssertTrue(tiles.isEmpty)
     }
+
+    func testFreeConnectionOnAnotherAccount() {
+        XCTAssertTrue(Multiview.hasFreeConnection(maxConnections: 1, activeConnections: 0, playingHere: 0))
+        XCTAssertFalse(Multiview.hasFreeConnection(maxConnections: 1, activeConnections: 1, playingHere: 0))
+        XCTAssertTrue(Multiview.hasFreeConnection(maxConnections: 2, activeConnections: 1, playingHere: 1))
+        // A stream started here that the panel hasn't counted yet.
+        XCTAssertFalse(Multiview.hasFreeConnection(maxConnections: 1, activeConnections: 0, playingHere: 1))
+        // Someone else in the house is watching on it.
+        XCTAssertFalse(Multiview.hasFreeConnection(maxConnections: 2, activeConnections: 2, playingHere: 0))
+        // A panel that doesn't say is never borrowed from.
+        XCTAssertFalse(Multiview.hasFreeConnection(maxConnections: nil, activeConnections: 0, playingHere: 0))
+        XCTAssertFalse(Multiview.hasFreeConnection(maxConnections: 3, activeConnections: nil, playingHere: 0))
+    }
+
+    func testOwnLimit() {
+        XCTAssertEqual(Multiview.ownLimit(maxConnections: 1), 1)
+        XCTAssertEqual(Multiview.ownLimit(maxConnections: 2), 2)
+        XCTAssertEqual(Multiview.ownLimit(maxConnections: nil), 4)
+        XCTAssertEqual(Multiview.ownLimit(maxConnections: 0), 1)
+    }
+
+    func testTilesRememberTheirAccount() {
+        var tiles = MultiviewTiles()
+        tiles.add(LiveStream(id: 1, name: "One"), limit: 4, account: "a")
+        tiles.add(LiveStream(id: 2, name: "Two"), limit: 4, account: "b")
+        tiles.add(LiveStream(id: 3, name: "Three"), limit: 4, account: "a")
+        XCTAssertEqual(tiles.account(for: 2), "b")
+        XCTAssertEqual(tiles.countByAccount, ["a": 2, "b": 1])
+        tiles.remove(1)
+        XCTAssertEqual(tiles.countByAccount, ["a": 1, "b": 1])
+        XCTAssertNil(tiles.account(for: 1))
+        tiles.removeAll()
+        XCTAssertEqual(tiles.countByAccount, [:])
+    }
 }

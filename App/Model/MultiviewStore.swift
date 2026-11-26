@@ -18,6 +18,11 @@ final class MultiviewStore {
     private(set) var waiting: LiveStream?
 
     private var noticeTask: Task<Void, Never>?
+    private weak var app: AppModel?
+
+    func attach(_ app: AppModel) {
+        self.app = app
+    }
 
     /// From a hold-Select menu: adds the channel and opens the multiview.
     /// Opening waits for the menu to close, because a cover presented while
@@ -30,23 +35,40 @@ final class MultiviewStore {
         }
     }
 
-    /// Adds a channel if there is room. When the account's reported
-    /// connections are what's in the way, the channel waits for the viewer's
-    /// answer instead; when the screen is full, it is dropped with a notice.
-    func add(_ stream: LiveStream, limit: Int) {
-        guard tiles.add(stream, limit: limit) == .full else { return }
-        if limit < Multiview.mostTiles {
-            waiting = stream
-        } else {
+    /// Adds a channel on an account with room: the one in use, or another
+    /// saved account on the same server with a connection free (asking the
+    /// panel can take a moment). When none has room the channel waits for
+    /// the viewer's answer, unless they already chose "Try anyway". When the
+    /// screen is full, it is dropped with a notice.
+    ///
+    /// `limit` is no longer used; the account in use and the others decide.
+    func add(_ stream: LiveStream, limit _: Int) {
+        guard !tiles.contains(stream.id) else { return }
+        guard tiles.streams.count < Multiview.mostTiles else {
             show("Multiview shows four channels at most. Remove one to add another.")
+            return
+        }
+        guard let app else { return }
+        let snapshot = tiles
+        Task { @MainActor in
+            let key = await app.pickMultiviewAccount(for: snapshot)
+            guard !tiles.contains(stream.id), tiles.streams.count < Multiview.mostTiles else { return }
+            if let key {
+                tiles.add(stream, limit: Multiview.mostTiles, account: key)
+            } else if app.multiviewIgnoresLimit {
+                tiles.add(stream, limit: Multiview.mostTiles, account: app.currentAccountKey)
+            } else {
+                waiting = stream
+            }
         }
     }
 
-    /// The viewer said yes: add the waiting channel under the new limit.
-    func addWaiting(limit: Int) {
+    /// The viewer said "Try anyway": the waiting channel plays on the
+    /// account in use, past what it reports.
+    func addWaiting(limit _: Int) {
         guard let stream = waiting else { return }
         waiting = nil
-        add(stream, limit: limit)
+        tiles.add(stream, limit: Multiview.mostTiles, account: app?.currentAccountKey)
     }
 
     /// The viewer said no, or closed the question.
