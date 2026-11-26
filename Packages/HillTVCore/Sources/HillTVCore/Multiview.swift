@@ -74,7 +74,55 @@ public enum Multiview {
     }
 }
 
-/// The channels in the multiview, in the order they were added.
+extension Multiview {
+    /// Whether another saved account can take one more channel. Only when
+    /// the panel reports both its connection count and how many are in use:
+    /// borrowing a connection someone else in the house is watching on
+    /// would knock their stream off. The channels this multiview already
+    /// plays on that account count too, since a panel can be slow to
+    /// report a stream that just started.
+    public static func hasFreeConnection(maxConnections: Int?, activeConnections: Int?, playingHere: Int) -> Bool {
+        guard let maxConnections, let activeConnections else { return false }
+        return maxConnections - Swift.max(activeConnections, playingHere) > 0
+    }
+
+    /// Why no other saved account took a channel, for the multiview to say.
+    public enum BorrowRefusal: Equatable, Sendable {
+        /// The panel said every connection is in use.
+        case noneFree
+        /// The panel doesn't report how many connections are in use.
+        case notReported
+        /// Signing in to the account failed.
+        case signInFailed
+    }
+
+    /// One sentence about the other accounts, worst case first.
+    public static func borrowMessage(_ refusals: [BorrowRefusal]) -> String? {
+        guard !refusals.isEmpty else { return nil }
+        let one = refusals.count == 1
+        let subject = one ? "Your other account on this server" : "Your other accounts on this server"
+        let reason: String
+        if refusals.allSatisfy({ $0 == .noneFree }) {
+            reason = one ? "has no connection free right now" : "have no connection free right now"
+        } else if refusals.contains(.signInFailed) {
+            reason = one ? "couldn't be signed in to" : "couldn't all be signed in to, or had no connection free"
+        } else {
+            reason = "can't be used: the provider doesn't say how many of " + (one ? "its" : "their") + " connections are in use"
+        }
+        return "\(subject) \(reason), so this channel plays on the account in use."
+    }
+
+    /// How many channels the account in use takes before other accounts are
+    /// asked. A panel that doesn't say gets the benefit of the doubt, as in
+    /// `tileLimit`.
+    public static func ownLimit(maxConnections: Int?) -> Int {
+        Swift.max(1, maxConnections ?? mostTiles)
+    }
+}
+
+/// The channels in the multiview, in the order they were added, and the
+/// saved account each one plays on (`AccountBook.key`). Never a URL: those
+/// hold passwords.
 public struct MultiviewTiles: Equatable, Sendable {
     public enum AddResult: Equatable, Sendable {
         case added
@@ -84,8 +132,19 @@ public struct MultiviewTiles: Equatable, Sendable {
     }
 
     public private(set) var streams: [LiveStream] = []
+    private var accounts: [Int: String] = [:]
 
     public init() {}
+
+    /// The account a channel plays on, nil for one added without one.
+    public func account(for streamID: Int) -> String? {
+        accounts[streamID]
+    }
+
+    /// How many channels play on each account.
+    public var countByAccount: [String: Int] {
+        accounts.values.reduce(into: [:]) { $0[$1, default: 0] += 1 }
+    }
 
     public var isEmpty: Bool { streams.isEmpty }
 
@@ -94,18 +153,28 @@ public struct MultiviewTiles: Equatable, Sendable {
     }
 
     @discardableResult
-    public mutating func add(_ stream: LiveStream, limit: Int) -> AddResult {
+    public mutating func add(_ stream: LiveStream, limit: Int, account: String? = nil) -> AddResult {
         if contains(stream.id) { return .alreadyThere }
         guard streams.count < limit else { return .full }
         streams.append(stream)
+        accounts[stream.id] = account
         return .added
     }
 
     public mutating func remove(_ streamID: Int) {
         streams.removeAll { $0.id == streamID }
+        accounts[streamID] = nil
     }
 
     public mutating func removeAll() {
         streams = []
+        accounts = [:]
+    }
+
+    /// For a removed account: its channels go.
+    public mutating func removeAll(onAccount key: String) {
+        let gone = Set(accounts.filter { $0.value == key }.keys)
+        streams.removeAll { gone.contains($0.id) }
+        for id in gone { accounts[id] = nil }
     }
 }

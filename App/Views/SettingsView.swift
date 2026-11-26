@@ -149,6 +149,35 @@ struct SettingsView: View {
                     }
                 }
 
+                SettingsCard(title: "Accounts") {
+                    ForEach(app.accounts, id: \.self) { account in
+                        let key = AccountBook.key(account)
+                        Button {
+                            app.switchTo(key)
+                        } label: {
+                            HStack {
+                                Text(account.label)
+                                    .lineLimit(1)
+                                Spacer()
+                                if key == app.currentAccountKey {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        .buttonStyle(TVRowButtonStyle(isSelected: key == app.currentAccountKey, font: .tvMeta))
+                    }
+                    Button {
+                        app.addingAccount = true
+                    } label: {
+                        Label("Add an account", systemImage: "plus")
+                    }
+                    .buttonStyle(TVRowButtonStyle(font: .tvMeta))
+                    Text("Each account keeps its own favorites, hidden categories, channel order and continue watching. The badge at the foot of the rail switches between them from anywhere.")
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                }
+
                 SettingsCard(title: "Sync") {
                     Button {
                         app.syncShowing = true
@@ -214,7 +243,9 @@ struct SettingsView: View {
                     InfoRow(label: "KSPlayer", value: KSPlayerSupport.isLinked ? "Included" : "Not in this build")
                 }
 
-                Button("Sign Out", role: .destructive) {
+                // Deletes this login and its continue-watching list from the TV.
+                // Favorites, hidden categories and channel order stay saved.
+                Button("Remove this account", role: .destructive) {
                     app.signOut()
                 }
                 .buttonStyle(TVActionButtonStyle())
@@ -260,10 +291,14 @@ extension SettingsView {
         let reported: String
         switch app.reportedConnections {
         case nil: reported = "Your provider doesn't say how many connections this account has."
-        case 1?: reported = "Your provider reports 1 connection for this account."
-        case let count?: reported = "Your provider reports \(count) connections for this account."
+        case 1?: reported = "Your provider reports 1 connection for the account in use."
+        case let count?: reported = "Your provider reports \(count) connections for the account in use."
         }
-        return "\(reported) Every channel in the multiview is a connection. Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
+        let others = app.otherAccountsOnServer.count
+        let borrowing = others == 0
+            ? ""
+            : " Channels past that play on your \(others == 1 ? "other account" : "other \(others) accounts") on the same server when the provider says one has a connection free."
+        return "\(reported) Every channel in the multiview is a connection.\(borrowing) Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
     }
 
     fileprivate var hiddenSummary: String {

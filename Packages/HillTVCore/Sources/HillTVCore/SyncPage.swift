@@ -108,7 +108,7 @@ button, .button { display: block; width: 100%; margin-top: 14px; padding: 13px; 
     $("app").hidden = false;
     $("save").href = "/api/settings?code=" + encodeURIComponent(code);
     if (state.signedIn) {
-      $("signedInAs").textContent = "This TV is signed in as " + state.username + " on " + state.server + ". Signing in again replaces that login.";
+      $("signedInAs").textContent = "This TV is signed in as " + state.username + " on " + state.server + ". Signing in with another login adds it as a second account on this TV and switches to it.";
       if (!$("server").value) { $("server").value = state.server; }
       if (!$("username").value) { $("username").value = state.username; }
     } else {

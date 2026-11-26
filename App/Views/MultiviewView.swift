@@ -131,7 +131,7 @@ struct MultiviewView: View {
             }
         }
         .fullScreenCover(isPresented: asking, onDismiss: afterAsking) {
-            ConnectionAsk(reported: app.reportedConnections) {
+            ConnectionAsk(reported: app.reportedConnections, otherAccounts: app.otherAccountsOnServer.count) {
                 tryAnyway()
             } onCancel: {
                 asking.wrappedValue = false
@@ -181,9 +181,10 @@ struct MultiviewView: View {
         } label: {
             MultiviewTile(
                 stream: stream,
-                url: isPlaying ? client.liveURL(streamID: stream.id, format: app.multiviewPlaysTS ? .mpegts : .hls) : nil,
+                url: isPlaying ? tileURL(stream) : nil,
                 usesKSPlayer: app.multiviewPlaysTS,
                 attempt: attempts[stream.id] ?? 0,
+                accountName: borrowedAccountName(stream.id),
                 muted: stream.id != soundStreamID,
                 maxResolution: cap.map { CGSize(width: $0.width, height: $0.height) },
                 nowTitle: epg.schedule(for: stream.id)?.current(at: epg.now)?.title,
@@ -220,6 +221,20 @@ struct MultiviewView: View {
         .zIndex(isFullScreen ? 1 : 0)
         .onAppear { epg.rowAppeared(stream.id) }
         .onDisappear { epg.rowDisappeared(stream.id) }
+    }
+
+    /// Built with the client of the account this channel plays on.
+    private func tileURL(_ stream: LiveStream) -> URL? {
+        let key = app.multiview.tiles.account(for: stream.id)
+        let tileClient = app.client(forAccount: key) ?? client
+        return tileClient.liveURL(streamID: stream.id, format: app.multiviewPlaysTS ? .mpegts : .hls)
+    }
+
+    /// The username of another account this channel borrows, nil for the
+    /// account in use.
+    private func borrowedAccountName(_ streamID: Int) -> String? {
+        guard let key = app.multiview.tiles.account(for: streamID), key != app.currentAccountKey else { return nil }
+        return app.accounts.first { AccountBook.key($0) == key }?.username
     }
 
     private func retry(_ streamID: Int) {
@@ -287,11 +302,9 @@ struct MultiviewView: View {
     private func addPressed() {
         // The new channel takes focus when it arrives, so show the grid.
         fullScreenID = nil
-        if tiles.count < app.multiviewLimit {
-            picking = true
-        } else {
-            askingForMore = true
-        }
+        // Whether an account has room is found out when the channel is
+        // picked: another saved account may have a connection free.
+        picking = true
     }
 
     /// "Try anyway": kept, so the question isn't asked again. Settings can undo it.
@@ -392,13 +405,20 @@ private struct MultiviewPicker: View {
 /// Asked before a channel goes past the connections the account reports.
 private struct ConnectionAsk: View {
     let reported: Int?
+    /// Other saved accounts on the same server, none of which had a connection free.
+    let otherAccounts: Int
     let onTry: () -> Void
     let onCancel: () -> Void
 
     private var message: String {
         let count = reported ?? 1
         let connections = count == 1 ? "1 connection" : "\(count) connections"
-        return "Your provider reports \(connections) for this account, and every channel on screen is a connection. Providers don't always enforce what they report, so you can try. If yours does, a channel will fail to start, or one that was playing will stop."
+        let others = otherAccounts == 0
+            ? ""
+            : (otherAccounts == 1
+                ? " Your other account on this server has no connection free right now, or its provider doesn't say."
+                : " Your other accounts on this server have no connection free right now, or their provider doesn't say.")
+        return "Your provider reports \(connections) for the account in use, and every channel on screen is a connection.\(others) Providers don't always enforce what they report, so you can try. If yours does, a channel will fail to start, or one that was playing will stop."
     }
 
     var body: some View {
@@ -484,6 +504,8 @@ private struct MultiviewTile: View {
     /// The MPEG-TS trial: KSPlayer plays the tile instead of the Apple player.
     let usesKSPlayer: Bool
     let attempt: Int
+    /// Another saved account this channel plays on, shown with its name.
+    let accountName: String?
     let muted: Bool
     let maxResolution: CGSize?
     let nowTitle: String?
@@ -514,8 +536,8 @@ private struct MultiviewTile: View {
                         )
                     }
                 }
-                // One player per channel and per try.
-                .id("\(stream.id)-\(attempt)")
+                // One player per channel, account and try.
+                .id("\(stream.id)-\(accountName ?? "")-\(attempt)")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -534,7 +556,7 @@ private struct MultiviewTile: View {
             // a score or a ticker in the others.
             if error != nil || (isFocused && !isFullScreen) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(stream.displayName.title)
+                    Text(accountName.map { "\(stream.displayName.title) · \($0)" } ?? stream.displayName.title)
                         .font(.tvSmall.weight(.semibold))
                         .foregroundStyle(Theme.text)
                         .lineLimit(1)
