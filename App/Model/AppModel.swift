@@ -155,6 +155,11 @@ final class AppModel {
     /// The key of the account in use (`AccountBook.key`).
     var currentAccountKey: String? { book.currentKey }
 
+    /// The last account details seen for a saved account, if any.
+    func accountDetails(_ key: String) -> XtreamAuthInfo? {
+        authCache[key]
+    }
+
     /// Activates the saved account in use, or shows the login screen.
     func restore() async {
         guard phase == .launching else { return }

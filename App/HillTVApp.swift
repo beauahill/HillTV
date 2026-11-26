@@ -30,7 +30,9 @@ struct RootView: View {
             case .signedOut:
                 LoginView()
             case .signedIn:
-                if let client = app.client {
+                if app.addingAccount {
+                    LoginView(adding: true)
+                } else if let client = app.client {
                     MainShell(client: client, visibility: app.categoryVisibility, order: app.channelOrder)
                         // New client (sign out/in) gets fresh section state.
                         .id(ObjectIdentifier(client))
@@ -68,6 +70,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     case favorites
     case movies
     case series
+    /// The rail's account badge. Never a section: it opens the switcher.
+    case accounts
     case settings
 
     var id: String { rawValue }
@@ -81,6 +85,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .favorites: return "Favorites"
         case .movies: return "Movies"
         case .series: return "Series"
+        case .accounts: return "Accounts"
         case .settings: return "Settings"
         }
     }
@@ -94,6 +99,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .favorites: return "heart"
         case .movies: return "film"
         case .series: return "square.grid.2x2"
+        case .accounts: return "person.crop.circle"
         case .settings: return "slider.horizontal.3"
         }
     }
@@ -111,6 +117,11 @@ struct MainShell: View {
     @Environment(AppModel.self) private var app
     @State private var section: AppSection = .home
     @State private var showingSearch = false
+    /// The account switcher is open.
+    @State private var showingAccounts = false
+    /// What the switcher asked for, done once it has closed: switching
+    /// rebuilds this whole shell, cover included.
+    @State private var accountAction: AccountSwitcher.Action?
     @State private var home: HomeModel
     @State private var search: SearchModel
     @State private var live: LiveTVModel
@@ -138,7 +149,7 @@ struct MainShell: View {
     var body: some View {
         HStack(spacing: 0) {
             // Read here, where the focus state lives, so the rail redraws when focus enters or leaves it.
-            Sidebar(selection: railSelection, focus: $sidebarFocus, expanded: sidebarFocus != nil)
+            Sidebar(selection: railSelection, focus: $sidebarFocus, expanded: sidebarFocus != nil, account: app.client?.account)
                 .frame(width: Theme.railWidth, alignment: .leading)
                 .focusSection()
                 // Menu on the rail closes the rail and goes back to the
@@ -176,12 +187,35 @@ struct MainShell: View {
             // Passed explicitly rather than relying on the environment reaching into a cover.
             .environment(app)
         }
+        .fullScreenCover(isPresented: $showingAccounts, onDismiss: runAccountAction) {
+            AccountSwitcher { action in
+                accountAction = action
+                showingAccounts = false
+            }
+            .foregroundStyle(Theme.text)
+            .tint(Theme.accent)
+            .preferredColorScheme(.dark)
+            .environment(app)
+        }
         .fullScreenCover(isPresented: multiviewShowing) {
             MultiviewView(client: client, epg: epg)
                 .foregroundStyle(Theme.text)
                 .tint(Theme.accent)
                 .preferredColorScheme(.dark)
                 .environment(app)
+        }
+    }
+
+    private func runAccountAction() {
+        guard let action = accountAction else { return }
+        accountAction = nil
+        switch action {
+        case .switchTo(let key):
+            app.switchTo(key)
+        case .remove(let key):
+            app.removeAccount(key)
+        case .add:
+            app.addingAccount = true
         }
     }
 
@@ -204,6 +238,8 @@ struct MainShell: View {
             set: { item in
                 if item == .search {
                     showingSearch = true
+                } else if item == .accounts {
+                    showingAccounts = true
                 } else {
                     section = item
                 }
@@ -216,7 +252,7 @@ struct MainShell: View {
     /// scores polling. Its model keeps the state for when it comes back.
     @ViewBuilder
     private var visibleContent: some View {
-        if showingSearch {
+        if showingSearch || showingAccounts {
             Color.clear
         } else {
             content
@@ -248,7 +284,7 @@ struct MainShell: View {
         case .movies: return movies.path.isEmpty
         case .series: return series.path.isEmpty
         // Search is never the shell's section; it has its own page.
-        case .live, .guide, .favorites, .settings, .search: return true
+        case .live, .guide, .favorites, .settings, .search, .accounts: return true
         }
     }
 
@@ -257,7 +293,7 @@ struct MainShell: View {
         switch section {
         case .home:
             HomeView(model: home, epg: epg)
-        case .search:
+        case .search, .accounts:
             // Never selected: see `railSelection`.
             EmptyView()
         case .live:
@@ -290,8 +326,10 @@ struct Sidebar: View {
     var focus: FocusState<AppSection?>.Binding
     /// True while one of the rail's items has focus.
     let expanded: Bool
+    /// The account in use, for the badge above Settings.
+    var account: XtreamAccount?
 
-    private static let primary = AppSection.allCases.filter { $0 != .settings }
+    private static let primary = AppSection.allCases.filter { $0 != .settings && $0 != .accounts }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -304,6 +342,7 @@ struct Sidebar: View {
 
             Spacer(minLength: 0)
 
+            accountButton
             button(.settings)
         }
         .padding(.horizontal, Sidebar.inset)
@@ -322,6 +361,21 @@ struct Sidebar: View {
 
     fileprivate static let inset: CGFloat = 12
     fileprivate static let itemSide: CGFloat = Theme.railWidth - inset * 2
+
+    /// The account in use as a circled initial; its label shows when the
+    /// rail is open. Select opens the switcher.
+    private var accountButton: some View {
+        Button {
+            selection = .accounts
+        } label: {
+            Text(account?.initial ?? "?")
+                .font(.system(size: 22, weight: .bold))
+                .frame(width: 44, height: 44)
+                .overlay(Circle().stroke(lineWidth: 2.5))
+        }
+        .buttonStyle(RailButtonStyle(title: account?.label ?? "Accounts", isSelected: false, expanded: expanded))
+        .focused(focus, equals: .accounts)
+    }
 
     private func button(_ item: AppSection) -> some View {
         Button {

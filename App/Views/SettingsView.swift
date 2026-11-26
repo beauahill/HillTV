@@ -149,6 +149,35 @@ struct SettingsView: View {
                     }
                 }
 
+                SettingsCard(title: "Accounts") {
+                    ForEach(app.accounts, id: \.self) { account in
+                        let key = AccountBook.key(account)
+                        Button {
+                            app.switchTo(key)
+                        } label: {
+                            HStack {
+                                Text(account.label)
+                                    .lineLimit(1)
+                                Spacer()
+                                if key == app.currentAccountKey {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        .buttonStyle(TVRowButtonStyle(isSelected: key == app.currentAccountKey, font: .tvMeta))
+                    }
+                    Button {
+                        app.addingAccount = true
+                    } label: {
+                        Label("Add an account", systemImage: "plus")
+                    }
+                    .buttonStyle(TVRowButtonStyle(font: .tvMeta))
+                    Text("Each account keeps its own favorites, hidden categories, channel order and continue watching. The badge at the foot of the rail switches between them from anywhere.")
+                        .font(.tvSmall)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 24)
+                }
+
                 SettingsCard(title: "Sync") {
                     Button {
                         app.syncShowing = true
