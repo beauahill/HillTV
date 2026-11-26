@@ -168,11 +168,10 @@ final class AppModel {
     /// (`ConnectionAsk`), or says why under Try anyway.
     func pickMultiviewAccount(for tiles: MultiviewTiles) async -> (key: String?, refusals: [Multiview.BorrowRefusal]) {
         guard let client else { return (nil, []) }
-        let current = AccountBook.key(client.account)
-        let playing = tiles.countByAccount
-        if playing[current, default: 0] < Multiview.ownLimit(maxConnections: authInfo?.user.maxConnections) {
-            return (current, [])
+        if let own = ownAccountRoom(for: tiles) {
+            return (own, [])
         }
+        let playing = tiles.countByAccount
         var refusals: [Multiview.BorrowRefusal] = []
         for other in book.others(onServerOf: client.account) {
             let key = AccountBook.key(other)
@@ -195,6 +194,15 @@ final class AppModel {
             }
         }
         return (nil, refusals)
+    }
+
+    /// The account in use, when it has connections to spare. Answered
+    /// without asking the provider, so a channel can be added at once.
+    func ownAccountRoom(for tiles: MultiviewTiles) -> String? {
+        guard let client else { return nil }
+        let key = AccountBook.key(client.account)
+        let ownLimit = Multiview.ownLimit(maxConnections: authInfo?.user.maxConnections)
+        return tiles.countByAccount[key, default: 0] < ownLimit ? key : nil
     }
 
     /// The client a multiview channel plays through. The account in use, or

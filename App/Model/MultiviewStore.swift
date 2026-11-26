@@ -18,6 +18,10 @@ final class MultiviewStore {
     private(set) var waiting: LiveStream?
 
     private var noticeTask: Task<Void, Never>?
+    /// The last add still asking other accounts. New adds wait for it.
+    private var addLine: Task<Void, Never>?
+    /// Bumped by `clear()`, so adds still waiting on an answer are dropped.
+    private var generation = 0
     private weak var app: AppModel?
 
     func attach(_ app: AppModel) {
@@ -49,22 +53,50 @@ final class MultiviewStore {
             return
         }
         guard let app else { return }
-        let snapshot = tiles
+        // The account in use has room and nothing is ahead in line: add it
+        // now, so the first channel is in the grid before the multiview
+        // opens (with no add box, an empty grid has nothing to focus).
+        if addLine == nil, let key = app.ownAccountRoom(for: tiles) {
+            tiles.add(stream, limit: Multiview.mostTiles, account: key)
+            return
+        }
+        // Otherwise other accounts are asked, which takes a moment. Adds
+        // wait their turn, so two quick ones can't both take the one free
+        // connection an account reported.
+        let ahead = addLine
+        let round = generation
+        let line = Task { @MainActor in
+            await ahead?.value
+            await self.addAsking(stream, round: round)
+        }
+        addLine = line
         Task { @MainActor in
-            let pick = await app.pickMultiviewAccount(for: snapshot)
-            guard !tiles.contains(stream.id), tiles.streams.count < Multiview.mostTiles else { return }
-            if let key = pick.key {
-                tiles.add(stream, limit: Multiview.mostTiles, account: key)
-            } else if app.multiviewIgnoresLimit {
-                tiles.add(stream, limit: Multiview.mostTiles, account: app.currentAccountKey)
-                // Otherwise the other accounts' not being used would look
-                // like the old one-account behaviour, with no reason given.
-                if let message = Multiview.borrowMessage(pick.refusals) {
-                    show(message)
-                }
-            } else {
-                waiting = stream
+            await line.value
+            if self.addLine == line { self.addLine = nil }
+        }
+    }
+
+    private func addAsking(_ stream: LiveStream, round: Int) async {
+        guard let app, round == generation,
+              !tiles.contains(stream.id), tiles.streams.count < Multiview.mostTiles else { return }
+        let accountInUse = app.currentAccountKey
+        let pick = await app.pickMultiviewAccount(for: tiles)
+        // The multiview may have been cleared, or the account switched or
+        // removed, while the provider answered.
+        guard round == generation, app.currentAccountKey == accountInUse,
+              !tiles.contains(stream.id), tiles.streams.count < Multiview.mostTiles else { return }
+        if let key = pick.key {
+            guard app.accounts.contains(where: { AccountBook.key($0) == key }) else { return }
+            tiles.add(stream, limit: Multiview.mostTiles, account: key)
+        } else if app.multiviewIgnoresLimit {
+            tiles.add(stream, limit: Multiview.mostTiles, account: app.currentAccountKey)
+            // Otherwise the other accounts' not being used would look
+            // like the old one-account behaviour, with no reason given.
+            if let message = Multiview.borrowMessage(pick.refusals) {
+                show(message)
             }
+        } else {
+            waiting = stream
         }
     }
 
@@ -91,6 +123,8 @@ final class MultiviewStore {
     }
 
     func clear() {
+        generation += 1
+        addLine = nil
         tiles.removeAll()
         isShowing = false
         notice = nil
