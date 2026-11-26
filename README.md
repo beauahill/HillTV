@@ -1,6 +1,6 @@
 # HillTV
 
-A personal IPTV player for Apple TV, in the spirit of UHF and Chillio. SwiftUI, tvOS 17+, Xtream Codes login. Built without a Mac: GitHub Actions compiles an unsigned `.ipa`, and atvloadly on a Linux box signs it with a free Apple ID and keeps it refreshed.
+A personal IPTV player for Apple TV, in the spirit of UHF and Chillio. SwiftUI, tvOS 17+, Xtream Codes login. There is a Google TV version too; see "Google TV" below. Built without a Mac: GitHub Actions compiles an unsigned `.ipa`, and atvloadly on a Linux box signs it with a free Apple ID and keeps it refreshed.
 
 ## What works in this starter
 
@@ -16,6 +16,50 @@ Settings has a live buffer size and a live delay choice. They trim the player's 
 
 The live preview uses one of your provider's connections while it plays. It is off by default unless the account reports two or more connections, and you can change it under Settings > Live TV preview.
 
+## Google TV
+
+`android/` holds the same app for Google TV and Android TV: Kotlin, Jetpack Compose, Media3 ExoPlayer. Same look, same sections, same Xtream login. The logic in `android/core` is a port of `Packages/HillTVCore`, file for file apart from the Apple-only player routing, with the same tests.
+
+It has been run in the Android TV emulator against a pretend provider (`Tools/mock_xtream.py`), not yet on a real TV or a real provider, and it has never played a real MPEG-TS stream. CLAUDE.md lists what was checked and what wasn't.
+
+Several saved accounts work the same as on the Apple TV too: the badge at the foot of the rail switches between them, each keeps its own favorites, hidden categories, channel order and Continue watching, and the multiview can use another account's free connection on the same server. Sync with a phone works the same as on the Apple TV (Settings > Sync, or "Use your phone instead" when signing in), with the same page and the same settings file, so a file saved from one TV loads into the other if both use the same server.
+
+What is different from the Apple TV app:
+
+- One player. ExoPlayer plays HLS, raw MPEG-TS, mkv and mp4 itself, so there is no player choice. Settings has a live stream format instead: HLS (the default) or MPEG-TS, which runs closer to the broadcast.
+- Back at the top of a section goes to the rail. Back on the rail leaves the app, which is what Google TV expects.
+- Holding Select opens a full-screen list of what you can do (favorite, multiview, move), because Android TV has no pop-up menu like the Apple TV's.
+- Search has its own box. Press Select on it to bring up the TV's keyboard.
+- A live channel that drops is reconnected up to three times before the error screen shows.
+
+Build it on Linux, Windows or a Mac. It needs JDK 21 and the Android SDK (Android Studio installs both; set `ANDROID_HOME` or put `sdk.dir=...` in `android/local.properties`):
+
+```
+cd android
+./gradlew :core:test            # the logic tests
+./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleRelease  # shrunk, about 3 MB
+```
+
+Install it on the TV with adb. On the TV, turn on Developer options (Settings > System > About, press Select on "Android TV OS build" seven times), then turn on USB debugging or Wireless debugging and note the TV's address:
+
+```
+adb connect <tv-address>:5555
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
+
+GitHub Actions also builds it (`.github/workflows/android.yml`) whenever something under `android/` changes, and keeps the APK as a run artifact. It is never attached to a release, so atvloadly's Apple TV updates are not disturbed.
+
+An update only installs over the old copy if both were signed with the same key. Builds from your own computer always are. To get that from GitHub's builds too, make a keystore once and add it to the repo's secrets; the workflow file says which ones. Keep the keystore out of the repo.
+
+To try the app without a provider:
+
+```
+python3 Tools/mock_xtream.py
+```
+
+and sign in to `http://10.0.2.2:8089` from the emulator (or this computer's address from a TV) with any username and password. The top of that file explains how to give it video to play.
+
 ## Layout
 
 ```
@@ -23,8 +67,10 @@ App/                      SwiftUI app (views, models, player engines)
 Packages/HillTVCore/      Xtream client, lenient JSON models, M3U parser, tests
 project.yml               XcodeGen spec, AVPlayer only
 project-ksplayer.yml      Same project plus KSPlayer
-.github/workflows/        CI: core tests on Linux, unsigned IPA on macOS
-Tools/make_icon.py        Regenerates the app icon and Top Shelf images
+.github/workflows/        CI: core tests on Linux, unsigned IPA on macOS, Google TV APK on Linux
+android/                  The Google TV app: core (logic, tests) and app (Compose UI, ExoPlayer)
+Tools/make_icon.py        Regenerates the app icon and Top Shelf images, and the Google TV banner
+Tools/mock_xtream.py      A pretend Xtream panel for testing without a provider
 CLAUDE.md                 Notes and roadmap for Claude Code
 ```
 

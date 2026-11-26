@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Regenerates HillTV's app icon and Top Shelf images.
 
-    python3 Tools/make_icon.py
+    python3 Tools/make_icon.py             # Apple TV assets
+    python3 Tools/make_icon.py --android   # Google TV banner and launcher icon
 
 The icon ("Sunrise") is three stacked layers that tvOS slides against each
 other when the icon has focus: a navy sky at the back, a white sun with a
@@ -158,7 +159,80 @@ def make_banner(name, width, height):
     write_json(folder / "Contents.json", {"info": INFO, "images": images})
 
 
+ANDROID_RES = ROOT / "android" / "app" / "src" / "main" / "res"
+
+
+def render_html(html, width, height):
+    """Screenshots a page with headless Chrome and returns it as an image."""
+    chrome = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+    if chrome is None:
+        sys.exit("The banners need google-chrome or chromium on the PATH.")
+    with tempfile.TemporaryDirectory() as work:
+        page = Path(work) / "banner.html"
+        shot = Path(work) / "banner.png"
+        page.write_text(html)
+        subprocess.run([
+            chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars",
+            f"--window-size={width},{height}", "--virtual-time-budget=8000",
+            f"--screenshot={shot}", page.as_uri(),
+        ], check=True, capture_output=True)
+        image = Image.open(shot).convert("RGB")
+    if image.size != (width, height):
+        sys.exit(f"Chrome made {image.size}, wanted {(width, height)}")
+    return image
+
+
+def android_banner_html(scale):
+    # Google TV shows only this 16:9 card on the home screen, with no title
+    # under it, so the wordmark has to be in the picture.
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@800&display=block">
+<style>html,body{{margin:0;background:#0f1a2e}}svg{{display:block}}</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" width="{320 * scale}" height="{180 * scale}" viewBox="0 0 640 360">
+<rect width="640" height="360" fill="#0f1a2e"/>
+<circle cx="150" cy="150" r="78" fill="#f2f5fa"/>
+<path d="M128 111 L128 189 L193 150 Z" fill="#0f1a2e" stroke="#0f1a2e" stroke-width="10" stroke-linejoin="round"/>
+<ellipse cx="120" cy="420" rx="330" ry="170" fill="#2f6bdd"/>
+<ellipse cx="520" cy="450" rx="380" ry="170" fill="#5b9bff"/>
+<text x="262" y="186" font-family="Inter, sans-serif" font-weight="800" font-size="104" letter-spacing="-3" fill="#f2f5fa">Hill<tspan fill="#5b9bff">TV</tspan></text>
+</svg></body></html>"""
+
+
+def draw_square_icon(size):
+    """The same sunrise, cropped square for launchers that use an icon instead of the banner."""
+    image = canvas(size, size, SKY + (255,))
+    draw = ImageDraw.Draw(image)
+    k = size * OVERSAMPLE / 480
+    cx, cy, r = 250 * k, 200 * k, 118 * k
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=SUN + (255,))
+    points = [(218 * k, 141 * k), (218 * k, 259 * k), (316 * k, 200 * k)]
+    half = 8 * k
+    draw.polygon(points, fill=SKY + (255,))
+    draw.line(points + [points[0]], fill=SKY + (255,), width=int(round(half * 2)))
+    for x, y in points:
+        draw.ellipse([x - half, y - half, x + half, y + half], fill=SKY + (255,))
+    for ex, ey, rx, ry, color in [(80, 560, 330, 255, HILL_BACK), (420, 600, 360, 250, HILL_FRONT)]:
+        draw.ellipse([(ex - rx) * k, (ey - ry) * k, (ex + rx) * k, (ey + ry) * k], fill=color + (255,))
+    return finish(image, size, size, opaque=True)
+
+
+def make_android():
+    # 320 x 180 dp banner. xhdpi is a 1080p TV, xxxhdpi a 4K one.
+    for density, scale in [("xhdpi", 2), ("xxxhdpi", 4)]:
+        folder = ANDROID_RES / f"drawable-{density}"
+        folder.mkdir(parents=True, exist_ok=True)
+        render_html(android_banner_html(scale), 320 * scale, 180 * scale).save(folder / "banner.png", optimize=True)
+    for density, size in [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)]:
+        folder = ANDROID_RES / f"mipmap-{density}"
+        folder.mkdir(parents=True, exist_ok=True)
+        draw_square_icon(size).save(folder / "ic_launcher.png", optimize=True)
+    print(f"Wrote {ANDROID_RES.relative_to(ROOT)}")
+
+
 def main():
+    if "--android" in sys.argv[1:]:
+        make_android()
+        return
     if BRAND.exists():
         shutil.rmtree(BRAND)
     write_json(BRAND.parent / "Contents.json", {"info": INFO})
