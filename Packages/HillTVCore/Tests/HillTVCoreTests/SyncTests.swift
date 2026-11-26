@@ -201,7 +201,28 @@ final class SyncGateTests: XCTestCase {
 
     func testPageWritesNoValuesAsHTML() {
         XCTAssertFalse(SyncPage.html.contains("innerHTML"))
+        XCTAssertFalse(SyncPage.html.contains("outerHTML"))
+        XCTAssertFalse(SyncPage.html.contains("insertAdjacentHTML"))
         XCTAssertFalse(SyncPage.html.contains("document.write"))
         XCTAssertTrue(SyncPage.html.contains("textContent"))
+    }
+
+    /// A new TV is filled in from a saved file: the page reads the same
+    /// format marker and account fields the file is written with.
+    func testPageReadsTheFileItSaves() throws {
+        let file = SyncSettings(
+            account: .init(server: "http://line.example.com", username: "viewer"),
+            hiddenCategories: CategoryVisibility(),
+            favorites: [],
+            channelOrder: ChannelOrder()
+        )
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: file.encoded()) as? [String: Any])
+        XCTAssertEqual(json["format"] as? String, SyncSettings.format)
+        let account = try XCTUnwrap(json["account"] as? [String: Any])
+        XCTAssertEqual(account["server"] as? String, "http://line.example.com")
+        XCTAssertEqual(account["username"] as? String, "viewer")
+        XCTAssertTrue(SyncPage.html.contains(#"data.format !== "\#(SyncSettings.format)""#))
+        XCTAssertTrue(SyncPage.html.contains("data.account.server"))
+        XCTAssertTrue(SyncPage.html.contains("data.account.username"))
     }
 }

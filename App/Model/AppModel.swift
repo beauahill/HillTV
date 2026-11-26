@@ -176,6 +176,11 @@ final class AppModel {
         let client = XtreamClient(account: account, userAgent: Self.userAgent)
         let info = try await client.authenticate()
 
+        // Signing in over another login (the phone page allows it) skips
+        // sign out, so drop what belongs to the old account's channels.
+        if self.client != nil {
+            multiview.clear()
+        }
         AccountStore.save(account)
         watchHistory.activate(account: account)
         categoryVisibility.activate(account: account)

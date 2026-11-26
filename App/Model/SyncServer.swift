@@ -12,9 +12,9 @@ import Observation
 ///
 /// Nothing is hosted anywhere: the phone talks to the TV directly. The page
 /// is plain http, the same as most providers' own addresses, so the login a
-/// phone sends travels over the home Wi-Fi unencrypted. A phone's browser
-/// won't run its encryption tools for a plain-http page on the local
-/// network, so this can't add its own.
+/// phone sends travels over the home Wi-Fi unencrypted. Browsers give the
+/// Web Crypto API only to secure (https) pages (MDN, checked Nov 2026), so
+/// the page can't add encryption of its own.
 ///
 /// Owned by `AppModel`, not by a screen, because signing in rebuilds every
 /// screen below the Sync cover.

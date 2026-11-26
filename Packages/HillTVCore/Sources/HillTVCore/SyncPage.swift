@@ -67,23 +67,24 @@ button, .button { display: block; width: 100%; margin-top: 14px; padding: 13px; 
 
     <section id="settingsBox">
       <h2>Settings</h2>
-      <p>Hidden categories, favorites and channel order, for copying to another TV on the same account. The file has your server and username, never your password.</p>
+      <p>Hidden categories, favorites and channel order, for copying to another TV on the same server. The file has your server and username, never your password.</p>
       <a class="button secondary" id="save" download="hilltv-settings.json">Save this TV's settings to your phone</a>
       <label for="file">Load a settings file into this TV</label>
       <input id="file" type="file" accept=".json,application/json">
-      <label class="check"><input type="checkbox" id="optHidden" checked> Hidden categories</label>
+      <p class="note" id="fileMsg"></p>
+      <label class="check"><input type="checkbox" id="optHidden" checked> Hidden categories (replaces this TV's)</label>
       <label class="check"><input type="checkbox" id="optFavorites"> Favorites (replaces this TV's)</label>
       <label class="check"><input type="checkbox" id="optOrder"> Channel order (replaces this TV's)</label>
       <button id="load">Load into this TV</button>
       <p class="note" id="loadMsg"></p>
     </section>
-    <p class="note" id="notSignedIn" hidden>Sign this TV in first, then its settings can be saved and loaded here.</p>
   </div>
 </main>
 <script>
 (function () {
   var params = new URLSearchParams(location.search);
   var code = params.get("code") || "";
+  var signedIn = false;
   var $ = function (id) { return document.getElementById(id); };
 
   function say(el, text, ok) {
@@ -113,8 +114,9 @@ button, .button { display: block; width: 100%; margin-top: 14px; padding: 13px; 
     } else {
       $("signedInAs").textContent = "This TV isn't signed in yet.";
     }
-    $("settingsBox").hidden = !state.signedIn;
-    $("notSignedIn").hidden = !!state.signedIn;
+    signedIn = !!state.signedIn;
+    $("save").hidden = !signedIn;
+    $("load").textContent = signedIn ? "Load into this TV" : "Sign in above, then load";
   }
 
   function refresh() {
@@ -147,9 +149,30 @@ button, .button { display: block; width: 100%; margin-top: 14px; padding: 13px; 
     });
   });
 
+  // A file from another TV fills in the server and username, so a new TV
+  // needs only the password typed (or filled in by the phone).
+  $("file").addEventListener("change", function () {
+    var file = $("file").files[0];
+    if (!file) { return; }
+    file.text().then(function (text) {
+      var data;
+      try { data = JSON.parse(text); } catch (e) { data = null; }
+      if (!data || data.format !== "hilltv.settings" || !data.account) {
+        say($("fileMsg"), "That isn't a HillTV settings file.", false);
+        return;
+      }
+      if (typeof data.account.server === "string" && !$("server").value) { $("server").value = data.account.server; }
+      if (typeof data.account.username === "string" && !$("username").value) { $("username").value = data.account.username; }
+      say($("fileMsg"), signedIn
+        ? "File ready. Pick what to load below."
+        : "Server and username filled in from the file. Add the password and sign in, then load.", true);
+    });
+  });
+
   $("load").addEventListener("click", function () {
     var file = $("file").files[0];
     if (!file) { say($("loadMsg"), "Pick a settings file first.", false); return; }
+    if (!signedIn) { say($("loadMsg"), "Sign this TV in first, then load.", false); return; }
     var query = "?hidden=" + ($("optHidden").checked ? 1 : 0)
       + "&favorites=" + ($("optFavorites").checked ? 1 : 0)
       + "&order=" + ($("optOrder").checked ? 1 : 0);
