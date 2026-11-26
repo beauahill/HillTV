@@ -1,0 +1,33 @@
+{
+  "account" : {
+    "server" : "http:\/\/line.example.com:8080",
+    "username" : "viewer"
+  },
+  "channelOrder" : {
+    "12" : [
+      3,
+      1,
+      2
+    ]
+  },
+  "favorites" : [
+    {
+      "name" : "US | CBS",
+      "stream_id" : 7,
+      "tv_archive" : 0
+    }
+  ],
+  "format" : "hilltv.settings",
+  "hiddenCategories" : {
+    "hidden" : {
+      "live" : [
+        "1",
+        "2"
+      ],
+      "movies" : [
+        "9"
+      ]
+    }
+  },
+  "version" : 1
+}

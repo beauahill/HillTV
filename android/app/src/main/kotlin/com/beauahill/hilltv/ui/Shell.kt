@@ -67,7 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.text.BasicText
+import com.beauahill.hilltv.core.XtreamAccount
 import com.beauahill.hilltv.core.XtreamClient
+import com.beauahill.hilltv.core.label
 import com.beauahill.hilltv.model.AppModel
 import com.beauahill.hilltv.model.EPGStore
 import com.beauahill.hilltv.model.LiveTVModel
@@ -95,25 +97,32 @@ fun HillTVRoot(app: AppModel) {
         LocalContentColor provides Theme.text,
     ) {
         Box(Modifier.fillMaxSize().background(Theme.background)) {
-            val client = app.client
-            when {
-                app.phase == AppModel.Phase.LAUNCHING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }
-                app.phase == AppModel.Phase.SIGNED_IN && client != null -> {
-                    // A new client (sign out, then in) gets fresh section state.
-                    key(client) {
-                        val item = app.nowPlaying
-                        Covered(
-                            covered = item != null,
-                            cover = { if (item != null) key(item.id) { PlayerScreen(item, onClose = app::closePlayer) } },
-                            coverColor = Color.Black,
-                        ) {
-                            CoverLayer(covers.entries, 0) { MainShell(client) }
+            // Above the login screen and the shell, and outside `key(client)`,
+            // so it stays up when the phone signs this TV in and everything
+            // below it is rebuilt.
+            Covered(covered = app.syncShowing, cover = { SyncScreen() }) {
+                val client = app.client
+                when {
+                    app.phase == AppModel.Phase.LAUNCHING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }
+                    // Add an account: the login screen in place of the shell, with a way back.
+                    app.phase == AppModel.Phase.SIGNED_IN && client != null && app.addingAccount -> LoginScreen(adding = true)
+                    app.phase == AppModel.Phase.SIGNED_IN && client != null -> {
+                        // A new client (another account, or sign out then in) gets fresh section state.
+                        key(client) {
+                            val item = app.nowPlaying
+                            Covered(
+                                covered = item != null,
+                                cover = { if (item != null) key(item.id) { PlayerScreen(item, onClose = app::closePlayer) } },
+                                coverColor = Color.Black,
+                            ) {
+                                CoverLayer(covers.entries, 0) { MainShell(client) }
+                            }
+                            // Declared after the shell, so the menu is the newest cover and sits on top.
+                            HoldMenuCover(menus)
                         }
-                        // Declared after the shell, so the menu is the newest cover and sits on top.
-                        HoldMenuCover(menus)
                     }
+                    else -> LoginScreen()
                 }
-                else -> LoginScreen()
             }
             Notice(app)
         }
@@ -329,6 +338,10 @@ fun MainShell(client: XtreamClient) {
 
     var section by remember { mutableStateOf(AppSection.HOME) }
     var showingSearch by remember { mutableStateOf(false) }
+    /** The account switcher is open. */
+    var showingAccounts by remember { mutableStateOf(false) }
+    /** What the switcher asked for, done once it has closed: switching rebuilds this whole shell. */
+    var accountAction by remember { mutableStateOf<AccountAction?>(null) }
     var railFocused by remember { mutableStateOf(false) }
     val railItems = remember { AppSection.entries.associateWith { FocusRequester() } }
     val contentFocus = remember { FocusRequester() }
@@ -365,10 +378,11 @@ fun MainShell(client: XtreamClient) {
     }
 
     // When a cover closes, focus goes back to the control that had it. If
-    // that control is gone (a favorite just removed from its own menu, say),
-    // focus falls to the rail. Put it back in the content instead, when the
-    // content has something to take it.
-    val covered = covers.entries.isNotEmpty() || app.nowPlaying != null
+    // that control is gone (a favorite just removed from its own menu, or the
+    // login screen's button after the phone signed this TV in), focus falls
+    // to the rail. Put it back in the content instead, when the content has
+    // something to take it.
+    val covered = covers.entries.isNotEmpty() || app.nowPlaying != null || app.syncShowing
     LaunchedEffect(covered) {
         if (covered || showingSearch) return@LaunchedEffect
         repeat(3) { withFrameNanos { } }
@@ -386,6 +400,27 @@ fun MainShell(client: XtreamClient) {
         try {
             railItems.getValue(section).requestFocus()
         } catch (_: IllegalStateException) {
+        }
+    }
+
+    FullScreenCover(visible = showingAccounts, onDismiss = { showingAccounts = false }) {
+        AccountSwitcher { action ->
+            accountAction = action
+            showingAccounts = false
+        }
+    }
+
+    LaunchedEffect(accountAction, showingAccounts) {
+        val action = accountAction ?: return@LaunchedEffect
+        if (showingAccounts) return@LaunchedEffect
+        // Let the page finish closing and hand focus back first.
+        snapshotFlow { covers.entries.isEmpty() }.first { it }
+        repeat(2) { withFrameNanos { } }
+        accountAction = null
+        when (action) {
+            is AccountAction.SwitchTo -> app.switchTo(action.key)
+            is AccountAction.Remove -> app.removeAccount(action.key)
+            AccountAction.Add -> app.addingAccount = true
         }
     }
 
@@ -437,6 +472,8 @@ fun MainShell(client: XtreamClient) {
                 selection = section,
                 expanded = railFocused,
                 items = railItems,
+                account = client.account,
+                onAccounts = { showingAccounts = true },
                 onFocusChanged = { railFocused = it },
                 // Picking Search opens the search page and leaves the current
                 // section selected, so Back returns to where the user was.
@@ -464,6 +501,8 @@ object Sidebar {
         selection: AppSection,
         expanded: Boolean,
         items: Map<AppSection, FocusRequester>,
+        account: XtreamAccount?,
+        onAccounts: () -> Unit,
         onFocusChanged: (Boolean) -> Unit,
         onSelect: (AppSection) -> Unit,
     ) {
@@ -491,7 +530,11 @@ object Sidebar {
             RailMark(expanded)
             Gap(height = 17.dp)
             for (item in AppSection.entries) {
-                if (item == AppSection.SETTINGS) Spacer(Modifier.weight(1f))
+                if (item == AppSection.SETTINGS) {
+                    Spacer(Modifier.weight(1f))
+                    // The account in use, above Settings. Opens the switcher.
+                    AccountRailButton(account, expanded, onAccounts)
+                }
                 RailButton(item, item == selection, expanded, items.getValue(item)) { onSelect(item) }
             }
         }
@@ -527,6 +570,37 @@ private fun RailButton(item: AppSection, isSelected: Boolean, expanded: Boolean,
             if (expanded) {
                 Txt(
                     item.title,
+                    Modifier.padding(start = 2.dp).alpha(labelAlpha),
+                    Type.meta,
+                    if (focused) Theme.onAccent else Theme.text,
+                    maxLines = 1,
+                    weight = FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+/** The account in use as a circled initial; "username · host" shows when the rail is open. */
+@Composable
+private fun AccountRailButton(account: XtreamAccount?, expanded: Boolean, onClick: () -> Unit) {
+    FocusBox(onClick, Modifier.fillMaxWidth()) { focused, pressed ->
+        val tint = if (focused) Theme.onAccent else Theme.muted
+        val labelAlpha by animateFloatAsState(if (expanded) 1f else 0f, Theme.focusAnimation(), label = "label")
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(Theme.rowHeight)
+                .alpha(if (pressed) 0.85f else 1f)
+                .background(if (focused) Theme.accent else Color.Transparent, RoundedCornerShape(Theme.radius)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(Sidebar.itemSide, Theme.rowHeight), contentAlignment = Alignment.Center) {
+                AccountInitial(account, 22.dp, tint)
+            }
+            if (expanded) {
+                Txt(
+                    account?.label ?: "Accounts",
                     Modifier.padding(start = 2.dp).alpha(labelAlpha),
                     Type.meta,
                     if (focused) Theme.onAccent else Theme.text,

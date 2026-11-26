@@ -19,9 +19,13 @@ name: Build Android TV APK
 on:
   push:
     branches: [main]
-    paths: ["android/**", ".github/workflows/android.yml"]
+    # The phone page is kept in the Swift core and copied here; a test
+    # holds the two equal, so a change to the Swift copy runs this too.
+    paths: ["android/**", ".github/workflows/android.yml", "Packages/HillTVCore/Sources/HillTVCore/SyncPage.swift"]
   pull_request:
-    paths: ["android/**", ".github/workflows/android.yml"]
+    # The phone page is kept in the Swift core and copied here; a test
+    # holds the two equal, so a change to the Swift copy runs this too.
+    paths: ["android/**", ".github/workflows/android.yml", "Packages/HillTVCore/Sources/HillTVCore/SyncPage.swift"]
   workflow_dispatch:
 
 concurrency:

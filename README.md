@@ -22,6 +22,8 @@ The live preview uses one of your provider's connections while it plays. It is o
 
 It has been run in the Android TV emulator against a pretend provider (`Tools/mock_xtream.py`), not yet on a real TV or a real provider, and it has never played a real MPEG-TS stream. CLAUDE.md lists what was checked and what wasn't.
 
+Several saved accounts work the same as on the Apple TV too: the badge at the foot of the rail switches between them, each keeps its own favorites, hidden categories, channel order and Continue watching, and the multiview can use another account's free connection on the same server. Sync with a phone works the same as on the Apple TV (Settings > Sync, or "Use your phone instead" when signing in), with the same page and the same settings file, so a file saved from one TV loads into the other if both use the same server.
+
 What is different from the Apple TV app:
 
 - One player. ExoPlayer plays HLS, raw MPEG-TS, mkv and mp4 itself, so there is no player choice. Settings has a live stream format instead: HLS (the default) or MPEG-TS, which runs closer to the broadcast.

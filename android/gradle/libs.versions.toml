@@ -12,6 +12,7 @@ lifecycle = "2.11.1"
 coreKtx = "1.19.1"
 media3 = "1.11.1"
 coil = "3.6.3"
+zxing = "3.5.4"
 
 [libraries]
 coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -34,6 +35,8 @@ media3-exoplayer-hls = { module = "androidx.media3:media3-exoplayer-hls", versio
 media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
+# QR codes for phone sync. Apache-2.0, which GPL-3.0 can include.
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
+import com.beauahill.hilltv.core.AccountBook
 import com.beauahill.hilltv.core.LiveFormat
 import com.beauahill.hilltv.core.LiveStream
 import com.beauahill.hilltv.core.Multiview
@@ -174,7 +175,9 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
     fun addPressed() {
         // The new channel takes focus when it arrives, so show the grid.
         fullScreenID = null
-        if (tiles.size < app.multiviewLimit) picking = true else askingForMore = true
+        // Whether an account has room is found out when the channel is
+        // picked: another saved account may have a connection free.
+        picking = true
     }
 
     /** "Try anyway": kept, so the question isn't asked again. Settings can undo it. */
@@ -193,6 +196,13 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
     fun stopAsking() {
         askingForMore = false
         app.multiview.dropWaiting()
+    }
+
+    /** The username of another account this channel borrows, null for the account in use. */
+    fun borrowedAccountName(streamID: Int): String? {
+        val key = app.multiview.tiles.account(streamID) ?: return null
+        if (key == app.currentAccountKey) return null
+        return app.accounts.firstOrNull { AccountBook.key(it) == key }?.username
     }
 
     fun openMenu(stream: LiveStream) {
@@ -227,7 +237,7 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
     }
 
     FullScreenCover(visible = asking, onDismiss = ::stopAsking) {
-        ConnectionAsk(app.reportedConnections, onTry = ::tryAnyway, onCancel = ::stopAsking)
+        ConnectionAsk(app.reportedConnections, app.otherAccountsOnServer.size, onTry = ::tryAnyway, onCancel = ::stopAsking)
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -250,7 +260,9 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
                         }
                         MultiviewTile(
                             stream = stream,
-                            url = if (isPlaying) client.liveURL(stream.id, format) else null,
+                            // Built with the client of the account this channel plays on.
+                            url = if (isPlaying) (app.clientFor(app.multiview.tiles.account(stream.id)) ?: client).liveURL(stream.id, format) else null,
+                            accountName = borrowedAccountName(stream.id),
                             attempt = attempts[stream.id] ?: 0,
                             muted = stream.id != soundStreamID,
                             cap = Multiview.pictureCap(tiles.size, isFullScreen),
@@ -321,6 +333,8 @@ private fun MultiviewTile(
     muted: Boolean,
     cap: Multiview.PictureCap?,
     nowTitle: String?,
+    /** Another saved account this channel plays on, shown with its name. */
+    accountName: String?,
     error: String?,
     isFullScreen: Boolean,
     enabled: Boolean,
@@ -342,7 +356,8 @@ private fun MultiviewTile(
             ChannelLogo(stream.iconURL, width = 120.dp, height = 75.dp)
             if (url != null && error == null) {
                 // One player per channel and per try.
-                key(url, attempt) {
+                // One player per channel, account and try.
+                key(url, accountName, attempt) {
                     LivePreview(url, muted, Modifier.fillMaxSize(), maxVideoSize = cap, keepsScreenOn = true, onError = onError)
                 }
             }
@@ -364,7 +379,10 @@ private fun MultiviewTile(
                         .padding(horizontal = 8.dp, vertical = 5.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Txt(stream.displayName.title, style = Type.small, color = Theme.text, maxLines = 1, weight = FontWeight.SemiBold)
+                    Txt(
+                        accountName?.let { "${stream.displayName.title} · $it" } ?: stream.displayName.title,
+                        style = Type.small, color = Theme.text, maxLines = 1, weight = FontWeight.SemiBold,
+                    )
                     if (error != null) {
                         Txt("$error Select to try again.", style = Type.small, color = Theme.muted, maxLines = 3)
                     } else if (nowTitle != null) {
@@ -425,7 +443,7 @@ private fun MultiviewPicker(candidates: List<LiveStream>, hasFavorites: Boolean,
 
 /** Asked before a channel goes past the connections the account reports. */
 @Composable
-private fun ConnectionAsk(reported: Int?, onTry: () -> Unit, onCancel: () -> Unit) {
+private fun ConnectionAsk(reported: Int?, otherAccounts: Int, onTry: () -> Unit, onCancel: () -> Unit) {
     val first = rememberInitialFocus()
     val count = reported ?: 1
     val connections = if (count == 1) "1 connection" else "$count connections"
@@ -437,8 +455,13 @@ private fun ConnectionAsk(reported: Int?, onTry: () -> Unit, onCancel: () -> Uni
         Icon(Icons.Outlined.GridView, size = 42.dp, tint = Theme.muted)
         Txt("Add another channel?", style = Type.title, color = Theme.text)
         Txt(
-            "Your provider reports $connections for this account, and every channel on screen is a connection. " +
-                "Providers don't always enforce what they report, so you can try. If yours does, a channel will " +
+            "Your provider reports $connections for the account in use, and every channel on screen is a connection." +
+                when (otherAccounts) {
+                    0 -> ""
+                    1 -> " Your other account on this server has no connection free right now, or its provider doesn't say."
+                    else -> " Your other accounts on this server have no connection free right now, or their provider doesn't say."
+                } +
+                " Providers don't always enforce what they report, so you can try. If yours does, a channel will " +
                 "fail to start, or one that was playing will stop.",
             Modifier.widthIn(max = 500.dp), Type.meta, Theme.muted, textAlign = TextAlign.Center,
         )

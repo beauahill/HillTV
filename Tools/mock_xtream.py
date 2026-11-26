@@ -304,6 +304,7 @@ class Panel(BaseHTTPRequestHandler):
     media = None
     fragments = None
     connections = 2
+    busy = set()
     segment_seconds = 1.0
     started = time.time()
 
@@ -394,7 +395,9 @@ class Panel(BaseHTTPRequestHandler):
             return self.send({
                 "user_info": {
                     "username": query.get("username"), "password": "not echoed", "auth": 1, "status": "Active",
-                    "exp_date": str(int(time.time()) + 200 * 86400), "is_trial": "0", "active_cons": "0",
+                    "exp_date": str(int(time.time()) + 200 * 86400), "is_trial": "0",
+                    # A username given with --busy reports every connection in use.
+                    "active_cons": str(self.connections) if query.get("username") in self.busy else "0",
                     "max_connections": str(self.connections), "allowed_output_formats": ["m3u8", "ts"],
                 },
                 "server_info": {"url": "mock.example", "port": "8089", "https_port": 443,
@@ -473,11 +476,14 @@ def main():
     parser.add_argument("--media", type=Path, help="folder with live.mp4 (fragmented) and movie.mp4")
     parser.add_argument("--loop-seconds", type=float, default=30, help="how long live.mp4 runs")
     parser.add_argument("--connections", type=int, default=2, help="max_connections the account reports")
+    parser.add_argument("--busy", action="append", default=[], metavar="USERNAME",
+                        help="report every connection in use for this username (for testing multiview across accounts)")
     parser.add_argument("--quiet", action="store_true", help="don't log requests")
     args = parser.parse_args()
 
     Panel.media = args.media
     Panel.connections = args.connections
+    Panel.busy = set(args.busy)
     Panel.quiet = args.quiet
     if args.media and (args.media / "live.mp4").exists():
         Panel.fragments = Fragments(args.media / "live.mp4")

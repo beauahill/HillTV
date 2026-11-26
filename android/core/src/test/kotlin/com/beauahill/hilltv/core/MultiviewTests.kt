@@ -130,4 +130,69 @@ class MultiviewTests {
         tiles = MultiviewTiles()
         assertTrue(tiles.isEmpty)
     }
+
+    @Test
+    fun testFreeConnectionOnAnotherAccount() {
+        assertTrue(Multiview.hasFreeConnection(1, 0, 0))
+        assertFalse(Multiview.hasFreeConnection(1, 1, 0))
+        assertTrue(Multiview.hasFreeConnection(2, 1, 1))
+        // A stream started here that the panel hasn't counted yet.
+        assertFalse(Multiview.hasFreeConnection(1, 0, 1))
+        // Someone else in the house is watching on it.
+        assertFalse(Multiview.hasFreeConnection(2, 2, 0))
+        // A panel that doesn't say is never borrowed from.
+        assertFalse(Multiview.hasFreeConnection(null, 0, 0))
+        assertFalse(Multiview.hasFreeConnection(3, null, 0))
+    }
+
+    @Test
+    fun testOwnLimit() {
+        assertEquals(1, Multiview.ownLimit(1))
+        assertEquals(2, Multiview.ownLimit(2))
+        assertEquals(4, Multiview.ownLimit(null))
+        assertEquals(1, Multiview.ownLimit(0))
+    }
+
+    @Test
+    fun testTilesRememberTheirAccount() {
+        var tiles = MultiviewTiles()
+        tiles = tiles.add(LiveStream(id = 1, name = "One"), 4, "a").first
+        tiles = tiles.add(LiveStream(id = 2, name = "Two"), 4, "b").first
+        tiles = tiles.add(LiveStream(id = 3, name = "Three"), 4, "a").first
+        assertEquals("b", tiles.account(2))
+        assertEquals(mapOf("a" to 2, "b" to 1), tiles.countByAccount)
+        tiles = tiles.remove(1)
+        assertEquals(mapOf("a" to 1, "b" to 1), tiles.countByAccount)
+        assertEquals(null, tiles.account(1))
+        tiles = MultiviewTiles()
+        assertEquals(emptyMap<String, Int>(), tiles.countByAccount)
+    }
+
+    @Test
+    fun testRemovingAnAccountDropsItsChannels() {
+        var tiles = MultiviewTiles()
+        tiles = tiles.add(LiveStream(id = 1, name = "One"), 4, "a").first
+        tiles = tiles.add(LiveStream(id = 2, name = "Two"), 4, "b").first
+        tiles = tiles.add(LiveStream(id = 3, name = "Three"), 4, "b").first
+        tiles = tiles.removeAll("b")
+        assertEquals(listOf(1), tiles.streams.map { it.id })
+        assertEquals(mapOf("a" to 1), tiles.countByAccount)
+    }
+
+    @Test
+    fun testBorrowMessage() {
+        assertEquals(null, Multiview.borrowMessage(emptyList()))
+        assertEquals(
+            "Your other account on this server has no connection free right now, so this channel plays on the account in use.",
+            Multiview.borrowMessage(listOf(Multiview.BorrowRefusal.NONE_FREE)),
+        )
+        assertEquals(
+            "Your other account on this server can't be used: the provider doesn't say how many of its connections are in use, so this channel plays on the account in use.",
+            Multiview.borrowMessage(listOf(Multiview.BorrowRefusal.NOT_REPORTED)),
+        )
+        assertEquals(
+            "Your other accounts on this server couldn't all be signed in to, or had no connection free, so this channel plays on the account in use.",
+            Multiview.borrowMessage(listOf(Multiview.BorrowRefusal.NONE_FREE, Multiview.BorrowRefusal.SIGN_IN_FAILED)),
+        )
+    }
 }

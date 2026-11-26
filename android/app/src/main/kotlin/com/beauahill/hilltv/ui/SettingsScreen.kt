@@ -8,10 +8,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,7 +21,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.beauahill.hilltv.core.AccountBook
 import com.beauahill.hilltv.core.CatalogKind
+import com.beauahill.hilltv.core.label
 import com.beauahill.hilltv.core.CategoryGroup
 import com.beauahill.hilltv.core.LiveFormat
 import com.beauahill.hilltv.core.PlaybackSettings.LiveBuffer
@@ -80,15 +84,28 @@ fun SettingsScreen() {
             app.accountWarning?.let { Note(it, warningColor) }
         }
 
-        SettingsCard("Live stream format") {
-            for (format in LiveFormat.entries) {
+        SettingsCard("Accounts") {
+            app.accounts.forEachIndexed { index, account ->
+                val key = AccountBook.key(account)
                 ChoiceRow(
-                    formatTitle(format),
-                    app.liveFormatChoice == format,
+                    account.label,
+                    key == app.currentAccountKey,
                     // The first thing on the page that takes focus. Nothing above it does,
                     // so coming back up to it scrolls the account details into view too.
-                    onFocus = if (format == LiveFormat.entries.first()) ({ scope.launch { scroll.animateScrollTo(0) } }) else null,
-                ) { app.liveFormatChoice = format }
+                    onFocus = if (index == 0) ({ scope.launch { scroll.animateScrollTo(0) } }) else null,
+                ) { app.switchTo(key) }
+            }
+            TVRow(onClick = { app.addingAccount = true }, textStyle = Type.meta) {
+                Icon(Icons.Filled.Add, size = 14.dp)
+                Gap(width = 8.dp)
+                Txt("Add an account", Modifier.weight(1f), maxLines = 1)
+            }
+            Note("Each account keeps its own favorites, hidden categories, channel order and continue watching. The badge at the foot of the rail switches between them from anywhere.")
+        }
+
+        SettingsCard("Live stream format") {
+            for (format in LiveFormat.entries) {
+                ChoiceRow(formatTitle(format), app.liveFormatChoice == format) { app.liveFormatChoice = format }
             }
             Note(formatDetail(app.liveFormatChoice))
             if (app.liveFormat != app.liveFormatChoice) {
@@ -123,6 +140,16 @@ fun SettingsScreen() {
             }
         }
 
+        SettingsCard("Sync") {
+            TVRow(onClick = { app.syncShowing = true }, textStyle = Type.meta) {
+                Icon(Icons.Outlined.QrCode2, size = 14.dp)
+                Gap(width = 8.dp)
+                Txt("Sync with your phone", Modifier.weight(1f), maxLines = 1)
+                Icon(Icons.Filled.ChevronRight, size = 14.dp)
+            }
+            Note("Scan a code with a phone on the same Wi-Fi to sign this TV in, or to save its hidden categories, favorites and channel order and load them into another TV. Nothing is stored anywhere but your TVs and your phone.")
+        }
+
         SettingsCard("Categories") {
             TVRow(onClick = { showingCategories = true }, textStyle = Type.meta) {
                 Txt("Choose what to show", Modifier.weight(1f), maxLines = 1)
@@ -143,7 +170,9 @@ fun SettingsScreen() {
             InfoRow("Player", "Media3 ExoPlayer")
         }
 
-        TVAction("Sign Out", onClick = { app.signOut() })
+        // Deletes this login and its continue-watching list from the TV.
+        // Favorites, hidden categories and channel order stay saved.
+        TVAction("Remove this account", onClick = { app.signOut() })
     }
 }
 
@@ -185,10 +214,13 @@ private fun delayDetail(delay: LiveDelay): String = when (delay) {
 private fun multiviewSummary(app: AppModel): String {
     val reported = when (val count = app.reportedConnections) {
         null -> "Your provider doesn't say how many connections this account has."
-        1 -> "Your provider reports 1 connection for this account."
-        else -> "Your provider reports $count connections for this account."
+        1 -> "Your provider reports 1 connection for the account in use."
+        else -> "Your provider reports $count connections for the account in use."
     }
-    return "$reported Every channel in the multiview is a connection. Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
+    val others = app.otherAccountsOnServer.size
+    val borrowing = if (others == 0) "" else
+        " Channels past that play on your ${if (others == 1) "other account" else "other $others accounts"} on the same server when the provider says one has a connection free."
+    return "$reported Every channel in the multiview is a connection.$borrowing Hold Select on a channel to add it. If you try more than the provider allows, the extra channels fail to start or the provider stops one that was playing."
 }
 
 private fun hiddenSummary(app: AppModel): String {

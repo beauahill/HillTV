@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.QrCode2
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,9 +35,11 @@ import com.beauahill.hilltv.model.readable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
+/** `adding`: adding another account over a TV that is signed in, so there is a way back, and Back takes it. */
 @Composable
-fun LoginScreen() {
+fun LoginScreen(adding: Boolean = false) {
     val app = LocalApp.current
+    BackHandler(enabled = adding) { app.addingAccount = false }
     val scope = rememberCoroutineScope()
     var server by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
@@ -73,7 +79,7 @@ fun LoginScreen() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Wordmark(48.sp)
-            Txt("Sign in with your Xtream Codes details", style = Type.meta, color = Theme.muted)
+            Txt(if (adding) "Add another Xtream Codes account" else "Sign in with your Xtream Codes details", style = Type.meta, color = Theme.muted)
         }
 
         Column(
@@ -101,6 +107,16 @@ fun LoginScreen() {
             Box(Modifier.widthIn(min = 150.dp), contentAlignment = Alignment.Center) {
                 if (isWorking) Spinner(size = 16.dp, color = LocalContentColor.current) else Txt("Sign In")
             }
+        }
+
+        // Typing a login with the remote is slow; a phone on the same Wi-Fi
+        // can do it from the Sync page instead.
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TVAction(onClick = { app.syncShowing = true }) {
+                Icon(Icons.Outlined.QrCode2, size = 14.dp)
+                Txt("Use your phone instead", maxLines = 1)
+            }
+            if (adding) TVAction("Cancel", onClick = { app.addingAccount = false })
         }
     }
 }
