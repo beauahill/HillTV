@@ -53,10 +53,12 @@ final class MultiviewStore {
             return
         }
         guard let app else { return }
-        // The account in use has room and nothing is ahead in line: add it
-        // now, so the first channel is in the grid before the multiview
-        // opens (with no add box, an empty grid has nothing to focus).
-        if addLine == nil, let key = app.ownAccountRoom(for: tiles) {
+        // The account in use has room: add it now, so the first channel is
+        // in the grid before the multiview opens (with no add box, an empty
+        // grid has nothing to focus). It skips the line below: it can't take
+        // another account's connection, and a slow or dead other account
+        // (requests time out after 45 s) mustn't hold it up.
+        if let key = app.ownAccountRoom(for: tiles) {
             tiles.add(stream, limit: Multiview.mostTiles, account: key)
             return
         }
@@ -80,6 +82,12 @@ final class MultiviewStore {
         guard let app, round == generation,
               !tiles.contains(stream.id), tiles.streams.count < Multiview.mostTiles else { return }
         let accountInUse = app.currentAccountKey
+        if !app.otherAccountsOnServer.isEmpty {
+            // Asking can take a while; say what the wait is.
+            show(app.otherAccountsOnServer.count == 1
+                 ? "Asking your other account for a free connection."
+                 : "Asking your other accounts for a free connection.")
+        }
         let pick = await app.pickMultiviewAccount(for: tiles)
         // The multiview may have been cleared, or the account switched or
         // removed, while the provider answered.
