@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.runtime.Composable
@@ -90,7 +89,7 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
     var fullScreenID by remember { mutableStateOf<Int?>(null) }
     /** True while the list of channels to add is open. */
     var picking by remember { mutableStateOf(false) }
-    /** True while the plus tile is asking about the connection count. */
+    /** True while Add a channel is asking about the connection count. */
     var askingForMore by remember { mutableStateOf(false) }
     /** Why a channel isn't playing, by stream ID. */
     val errors = remember { mutableStateMapOf<Int, String>() }
@@ -104,14 +103,14 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
     val tileFocus = remember { HashMap<Int, FocusRequester>() }
     val firstFocus = rememberInitialFocus()
 
-    // The plus tile shows until the screen is full. Whether the account has
-    // room for another channel is asked when it is pressed.
+    // Add a channel is offered until the screen is full. Whether the account
+    // has room for another channel is asked when it is picked.
     val canAdd = tiles.size < Multiview.MOST_TILES
     val soundStreamID = soundID ?: tiles.firstOrNull()?.id
     val isPlaying = ready && inForeground
     val format = if (app.multiviewPlaysTS || !app.previewSupported) LiveFormat.MPEGTS else LiveFormat.HLS
     val fullScreenIndex = tiles.indexOfFirst { it.id == fullScreenID }
-    // The question is up when the plus tile asked, or when a channel added
+    // The question is up when Add a channel asked, or when a channel added
     // from a hold-Select menu is waiting on it.
     val asking = askingForMore || app.multiview.waiting != null
 
@@ -164,10 +163,17 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
         errors.remove(streamID)
         attempts.remove(streamID)
         app.multiview.remove(streamID)
+        // With no add box, an empty multiview would have nothing to focus.
+        if (app.multiview.tiles.isEmpty) app.multiview.isShowing = false
     }
 
-    /** The plus tile. One more channel than the account reports connections for is a question first. */
+    /**
+     * Add a channel, from a channel's hold-Select menu. One more channel
+     * than the account reports connections for is a question first.
+     */
     fun addPressed() {
+        // The new channel takes focus when it arrives, so show the grid.
+        fullScreenID = null
         if (tiles.size < app.multiviewLimit) picking = true else askingForMore = true
     }
 
@@ -193,10 +199,12 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
         val isFullScreen = fullScreenID == stream.id
         menus.show(
             stream.displayName.title,
-            listOf(
+            listOfNotNull(
                 MenuAction(if (isFullScreen) "Back to the grid" else "Full screen") {
                     fullScreenID = if (isFullScreen) null else stream.id
                 },
+                // The menu closes before this runs, so the list can open in its place.
+                MenuAction("Add a channel") { addPressed() }.takeIf { canAdd },
                 MenuAction("Remove") { remove(stream.id) },
                 MenuAction("Close Multiview") { app.multiview.isShowing = false },
             ),
@@ -225,7 +233,9 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // One layout, with each tile keyed by its channel, so going full
         // screen only changes where a tile is placed. Its player is never
-        // taken apart and put back.
+        // taken apart and put back. Channels only: adding one is in each
+        // channel's hold-Select menu (Beau's pick), so two channels sit side
+        // by side instead of sharing a two by two grid with an add box.
         Layout(
             modifier = Modifier.fillMaxSize(),
             content = {
@@ -256,15 +266,6 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
                             onLongClick = { openMenu(stream) },
                             onFocused = { soundID = stream.id },
                             onError = { reason -> errors[stream.id] = reason },
-                        )
-                    }
-                }
-                if (canAdd) {
-                    key("add") {
-                        AddTile(
-                            enabled = fullScreenID == null,
-                            modifier = if (tiles.isEmpty()) Modifier.initialFocus(firstFocus) else Modifier,
-                            onClick = ::addPressed,
                         )
                     }
                 }
@@ -303,7 +304,7 @@ fun MultiviewScreen(client: XtreamClient, epg: EPGStore) {
         }
         if (showsHint && fullScreenID == null && tiles.isNotEmpty()) {
             Banner(
-                "Select: full screen. Hold Select: more. Back: close.",
+                "Select: full screen. Hold Select: add, remove and more. Back: close.",
                 Modifier.align(Alignment.BottomCenter).padding(bottom = Theme.safeVertical + 4.dp),
             )
         }
@@ -379,25 +380,6 @@ private fun MultiviewTile(
 }
 
 @Composable
-private fun AddTile(enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(6.dp)
-    FocusBox(onClick, modifier, enabled = enabled) { focused, _ ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(if (focused) Theme.controlRaised else Theme.surface, shape)
-                .then(if (focused) Modifier.border(Theme.focusRing, Theme.accent, shape) else Modifier),
-            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            val color = if (focused) Theme.text else Theme.muted
-            Icon(Icons.Filled.Add, size = 32.dp, tint = color)
-            Txt("Add a channel", style = Type.meta, color = color, maxLines = 1)
-        }
-    }
-}
-
-@Composable
 private fun Banner(text: String, modifier: Modifier = Modifier) {
     Txt(
         text,
@@ -406,7 +388,7 @@ private fun Banner(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** The list of channels the plus tile offers: favorites not on screen yet. */
+/** The list Add a channel offers: favorites not on screen yet. */
 @Composable
 private fun MultiviewPicker(candidates: List<LiveStream>, hasFavorites: Boolean, onClose: () -> Unit, onPick: (LiveStream) -> Unit) {
     val first = rememberInitialFocus()
