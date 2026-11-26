@@ -214,7 +214,9 @@ struct SettingsView: View {
                     InfoRow(label: "KSPlayer", value: KSPlayerSupport.isLinked ? "Included" : "Not in this build")
                 }
 
-                Button("Sign Out", role: .destructive) {
+                // Deletes this login and its continue-watching list from the TV.
+                // Favorites, hidden categories and channel order stay saved.
+                Button("Remove this account", role: .destructive) {
                     app.signOut()
                 }
                 .buttonStyle(TVActionButtonStyle())
